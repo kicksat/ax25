@@ -16,9 +16,8 @@
 class AX25 {
 public:
 
-	void setFromCallsign(char* callsign);
-
-	void setToCallsign(char* callsign);
+	//Default Constructor
+	AX25(char* fromCallsign, char* toCallsign);
 
 	void transmit(char* payload, unsigned int len);
 
@@ -29,6 +28,8 @@ private:
 	char m_buffer1[];
 
 	char m_buffer2[];
+
+	RH_RF22 m_modem;
 
 	//Flips the order of bytes from MSB first to LSB first
 	void lsbFirst(char* out, char* in, unsigned int len);
