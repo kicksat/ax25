@@ -90,7 +90,8 @@ void RHHardwareSPI::begin()
     {
 	case Frequency1MHz:
 	default:
-	    divider = SPI_CLOCK_DIV16;
+	    //divider = SPI_CLOCK_DIV16;
+		divider = SPI_CLOCK_DIV128;
 	    break;
 
 	case Frequency2MHz:
