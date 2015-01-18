@@ -9,7 +9,7 @@
 //
 // Author: Mike McCauley (mikem@airspayce.com)
 // Copyright (C) 2011 Mike McCauley
-// $Id: RHMesh.cpp,v 1.4 2014/04/28 23:07:14 mikem Exp mikem $
+// $Id: RHMesh.cpp,v 1.7 2014/08/10 20:55:17 mikem Exp $
 
 #include <RHMesh.h>
 
@@ -28,20 +28,23 @@ RHMesh::RHMesh(RHGenericDriver& driver, uint8_t thisAddress)
 ////////////////////////////////////////////////////////////////////
 // Discovers a route to the destination (if necessary), sends and 
 // waits for delivery to the next hop (but not for delivery to the final destination)
-uint8_t RHMesh::sendtoWait(uint8_t* buf, uint8_t len, uint8_t address)
+uint8_t RHMesh::sendtoWait(uint8_t* buf, uint8_t len, uint8_t address, uint8_t flags)
 {
     if (len > RH_MESH_MAX_MESSAGE_LEN)
 	return RH_ROUTER_ERROR_INVALID_LENGTH;
 
-    RoutingTableEntry* route = getRouteTo(address);
-    if (!route && !doArp(address))
-	return RH_ROUTER_ERROR_NO_ROUTE;
+    if (address != RH_BROADCAST_ADDRESS)
+    {
+	RoutingTableEntry* route = getRouteTo(address);
+	if (!route && !doArp(address))
+	    return RH_ROUTER_ERROR_NO_ROUTE;
+    }
 
-    // Now have a route. Contruct an applicaiotn layer message and dend it via that route
+    // Now have a route. Contruct an application layer message and send it via that route
     MeshApplicationMessage* a = (MeshApplicationMessage*)&_tmpMessage;
     a->header.msgType = RH_MESH_MESSAGE_TYPE_APPLICATION;
     memcpy(a->data, buf, len);
-    return RHRouter::sendtoWait(_tmpMessage, sizeof(RHMesh::MeshMessageHeader) + len, address);
+    return RHRouter::sendtoWait(_tmpMessage, sizeof(RHMesh::MeshMessageHeader) + len, address, flags);
 }
 
 ////////////////////////////////////////////////////////////////////
@@ -209,7 +212,7 @@ bool RHMesh::recvfromAck(uint8_t* buf, uint8_t* len, uint8_t* source, uint8_t* d
 		tmpMessageLen++;
 		// Have to impersonate the source
 		// REVISIT: if this fails what can we do?
-		RHRouter::sendtoWait(_tmpMessage, tmpMessageLen, RH_BROADCAST_ADDRESS, _source);
+		RHRouter::sendtoFromSourceWait(_tmpMessage, tmpMessageLen, RH_BROADCAST_ADDRESS, _source);
 	    }
 	}
     }
@@ -224,6 +227,7 @@ bool RHMesh::recvfromAckTimeout(uint8_t* buf, uint8_t* len, uint16_t timeout, ui
     {
 	if (recvfromAck(buf, len, from, to, id, flags))
 	    return true;
+	YIELD;
     }
     return false;
 }

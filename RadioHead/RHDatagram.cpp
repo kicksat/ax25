@@ -1,7 +1,7 @@
 // RHDatagram.cpp
 //
 // Copyright (C) 2011 Mike McCauley
-// $Id: RHDatagram.cpp,v 1.5 2014/04/28 23:07:14 mikem Exp mikem $
+// $Id: RHDatagram.cpp,v 1.6 2014/05/23 02:20:17 mikem Exp $
 
 #include <RHDatagram.h>
 
@@ -94,9 +94,9 @@ void RHDatagram::setHeaderId(uint8_t id)
     _driver.setHeaderId(id);
 }
 
-void RHDatagram::setHeaderFlags(uint8_t flags)
+void RHDatagram::setHeaderFlags(uint8_t set, uint8_t clear)
 {
-    _driver.setHeaderFlags(flags);
+    _driver.setHeaderFlags(set, clear);
 }
 
 uint8_t RHDatagram::headerTo()

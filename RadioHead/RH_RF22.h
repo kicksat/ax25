@@ -1,7 +1,7 @@
 // RH_RF22.h
 // Author: Mike McCauley (mikem@airspayce.com)
 // Copyright (C) 2011 Mike McCauley
-// $Id: RH_RF22.h,v 1.17 2014/05/18 06:42:31 mikem Exp mikem $
+// $Id: RH_RF22.h,v 1.26 2014/09/17 22:41:47 mikem Exp $
 //
 
 #ifndef RH_RF22_h
@@ -31,17 +31,9 @@
 // Max number of octets the RF22 Rx and Tx FIFOs can hold
 #define RH_RF22_FIFO_SIZE 64
 
-// Keep track of the mode the RF22 is in
-#define RH_RF22_MODE_IDLE         0
-#define RH_RF22_MODE_RX           1
-#define RH_RF22_MODE_TX           2
-
 // These values we set for FIFO thresholds (4, 55) are actually the same as the POR values
 #define RH_RF22_TXFFAEM_THRESHOLD 4
 #define RH_RF22_RXFFAFULL_THRESHOLD 55
-
-// This is the default node address,
-#define RH_RF22_DEFAULT_NODE_ADDRESS 0
 
 // Number of registers to be passed to setModemConfig(). Obsolete.
 #define RH_RF22_NUM_MODEM_CONFIG_REGS 18
@@ -554,11 +546,11 @@
 /// \endcode
 /// For Teensy 3.1
 /// \code
-///                 Arduino      RFM-22B
+///                 Teensy      RFM-22B
 ///                 GND----------GND-\ (ground in)
 ///                              SDN-/ (shutdown in)
 ///                 3V3----------VCC   (3.3V in)
-/// interrupt 0 pin D0-----------NIRQ  (interrupt request out)
+/// interrupt 2 pin D2-----------NIRQ  (interrupt request out)
 ///          SS pin D10----------NSEL  (chip select in)
 ///         SCK pin D13----------SCK   (SPI clock in)
 ///        MOSI pin D11----------SDI   (SPI Data in)
@@ -654,14 +646,30 @@
 /// communicate with the RF22 module. However, if your RF22 SPI is connected to
 /// the Arduino through non-standard pins, or the standard Hardware SPI
 /// interface will not work for you, you can instead use a bit-banged Software
-/// SPI, which can be configured to work on any Arduino digital IO pins. A
-/// sample Software SPI class contributed by Chris Lapa is included in the
-/// RF22 library, and example sketches showing how to use it are in
-/// rf22_client_softwarespi and rf22_server_softwarespi. Thanks Chris!
+/// SPI class RHSoftwareSPI, which can be configured to work on any Arduino digital IO pins.
+/// See the documentation of RHSoftwareSPI for details.
 ///
 /// The advantages of the Software SPI interface are that it can be used on
 /// any Arduino pins, not just the usual dedicated hardware pins. The
-/// disadvantage is that it is slightly slower then hardware.
+/// disadvantage is that it is significantly slower then hardware.
+/// If you observe reliable behaviour with the default hardware SPI RHHardwareSPI, but unreliable behaviour 
+/// with Software SPI RHSoftwareSPI, it may be due to slow CPU performance.
+///
+/// Initialisation example with hardware SPI
+/// \code
+/// #include <RH_RF22.h>
+/// RH_RF22 driver;
+/// RHReliableDatagram manager(driver, CLIENT_ADDRESS);
+/// \endcode
+///
+/// Initialisation example with software SPI
+/// \code
+/// #include <RH_RF22.h>
+/// #include <RHSoftwareSPI.h>
+/// RHSoftwareSPI spi;
+/// RH_RF22 driver(10, 2, spi);
+/// RHReliableDatagram manager(driver, CLIENT_ADDRESS);
+/// \endcode
 ///
 /// \par Memory
 ///
@@ -753,7 +761,7 @@
 /// - 12dB attenuator
 /// - BNC-SMA adapter
 /// - MiniKits AD8307 HF/VHF Power Head (calibrated against Rohde&Schwartz 806.2020 test set)
-/// - Tektronix TDA220 scope to measure the Vout from power head
+/// - Tektronix TDS220 scope to measure the Vout from power head
 /// \code
 /// Program power           Measured Power
 ///    dBm                         dBm
@@ -949,7 +957,7 @@ public:
 			   uint8_t adcgain = 0, 
 			   uint8_t adcoffs = 0);
 
-    /// Reads the on-chip temperature sensoer
+    /// Reads the on-chip temperature sensor
     /// \param[in] tsrange Specifies the temperature range to use. One of RH_RF22_TSRANGE_*
     /// \param[in] tvoffs Specifies the temperature value offset. This is actually signed value 
     /// added to the measured temperature value
@@ -988,7 +996,8 @@ public:
     /// \return true if the selected frquency centre + (fhch * fhs) is within range
     bool        setFHChannel(uint8_t fhch);
 
-    /// Reads and returns the current RSSI value from register RH_RF22_REG_26_RSSI. If you want to find the RSSI
+    /// Reads and returns the current RSSI value from register RH_RF22_REG_26_RSSI. Caution: this is
+    /// in internal units (see figure 31 of RFM22B/23B documentation), not in dBm. If you want to find the RSSI in dBm
     /// of the last received message, use lastRssi() instead.
     /// \return The current RSSI value 
     uint8_t        rssiRead();
@@ -1067,22 +1076,6 @@ public:
     /// \return true if the message length was valid and it was correctly queued for transmit
     bool        send(const uint8_t* data, uint8_t len);
 
-    /// Returns the TO header of the last received message
-    /// \return The TO header
-    uint8_t        headerTo();
-
-    /// Returns the FROM header of the last received message
-    /// \return The FROM header
-    uint8_t        headerFrom();
-
-    /// Returns the ID header of the last received message
-    /// \return The ID header
-    uint8_t        headerId();
-
-    /// Returns the FLAGS header of the last received message
-    /// \return The FLAGS header
-    uint8_t        headerFlags();
-
     /// Sets the length of the preamble
     /// in 4-bit nibbles. 
     /// Caution: this should be set to the same 
@@ -1130,6 +1123,13 @@ public:
     /// The maximum message length supported by this driver
     /// \return The maximum message length supported by this driver
     uint8_t maxMessageLength();
+
+    /// Sets the radio into low-power sleep mode.
+    /// If successful, the transport will stay in sleep mode until woken by 
+    /// changing mode it idle, transmit or receive (eg by calling send(), recv(), available() etc)
+    /// Caution: there is a time penalty as the radio takes a finite time to wake from sleep mode.
+    /// \return true if sleep mode was successfully entered.
+    virtual bool    sleep();
 
 protected:
     /// This is a low level function to handle the interrupts for one instance of RH_RF22.
@@ -1190,21 +1190,6 @@ protected:
     /// Subclasses may override this function to get control when an RF22 wakeup timer interrupt occurs. 
     virtual void   handleWakeupTimerInterrupt();
 
-    /// Sets the TO header to be sent in all subsequent messages
-    /// \param[in] to The new TO header value
-    void           setHeaderTo(uint8_t to);
-
-    /// Sets the FROM header to be sent in all subsequent messages
-    /// \param[in] from The new FROM header value
-    void           setHeaderFrom(uint8_t from);
-
-    /// Sets the ID header to be sent in all subsequent messages
-    /// \param[in] id The new ID header value
-    void           setHeaderId(uint8_t id);
-    /// Sets the FLAGS header to be sent in all subsequent messages
-    /// \param[in] flags The new FLAGS header value
-    void           setHeaderFlags(uint8_t flags);
-
     /// Start the transmission of the contents 
     /// of the Tx buffer
     void           startTransmit();
@@ -1214,6 +1199,15 @@ protected:
     void           restartTransmit();
 
     void           setThisAddress(uint8_t thisAddress);
+
+    /// Sets the radio operating mode for the case when the driver is idle (ie not
+    /// transmitting or receiving), allowing you to control the idle mode power requirements
+    /// at the expense of slower transitions to transmit and receive modes.
+    /// By default, the idle mode is RH_RF22_XTON,
+    /// but eg setIdleMode(RH_RF22_PLL) will provide a much lower
+    /// idle current but slower transitions. Call this function after init().
+    /// \param[in] idleMode The chip operating mode to use when the driver is idle. One of the valid definitions for RH_RF22_REG_07_OPERATING_MODE
+    void setIdleMode(uint8_t idleMode);
 
 protected:
     /// Low level interrupt service routine for RF22 connected to interrupt 0
@@ -1232,7 +1226,7 @@ protected:
     /// The configured interrupt pin connected to this instance
     uint8_t             _interruptPin;
 
-    /// The radio mode to use when mode is RH_RF22_MODE_IDLE
+    /// The radio mode to use when mode is idle
     uint8_t             _idleMode; 
 
     /// The device type reported by the RF22

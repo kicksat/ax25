@@ -1,7 +1,7 @@
 // RH_NRF905.cpp
 //
 // Copyright (C) 2012 Mike McCauley
-// $Id: RH_NRF905.cpp,v 1.2 2014/05/03 00:20:36 mikem Exp mikem $
+// $Id: RH_NRF905.cpp,v 1.3 2014/07/23 09:40:42 mikem Exp $
 
 #include <RH_NRF905.h>
 
@@ -172,17 +172,22 @@ bool RH_NRF905::isSending()
     return !(statusRead() & RH_NRF905_STATUS_DR);
 }
 
+bool RH_NRF905::printRegister(uint8_t reg)
+{
+#ifdef RH_HAVE_SERIAL
+    Serial.print(reg, HEX);
+    Serial.print(": ");
+    Serial.println(spiReadRegister(reg), HEX);
+#endif
+}
+
 bool RH_NRF905::printRegisters()
 {
     uint8_t registers[] = { 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09};
 
     uint8_t i;
     for (i = 0; i < sizeof(registers); i++)
-    {
-	Serial.print(i, HEX);
-	Serial.print(": ");
-	Serial.println(spiReadRegister(registers[i]), HEX);
-    }
+	printRegister(registers[i]);
     return true;
 }
 
@@ -213,6 +218,8 @@ bool RH_NRF905::available()
 {
     if (!_rxBufValid)
     {
+	if (_mode == RHModeTx)
+	    return false;
 	setModeRx();
 	if (!(statusRead() & RH_NRF905_STATUS_DR))
 	    return false;

@@ -6,6 +6,7 @@
 // Tested on Uno with Sparkfun WRL-00691 NRF24L01 module
 // Tested on Teensy with Sparkfun WRL-00691 NRF24L01 module
 // Tested on Anarduino Mini (http://www.anarduino.com/mini/) with RFM73 module
+// Tested on Arduino Mega with Sparkfun WRL-00691 NRF25L01 module
 
 #include <RHReliableDatagram.h>
 #include <RH_NRF24.h>

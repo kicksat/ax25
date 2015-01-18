@@ -1,7 +1,7 @@
 // RH_NRF905.h
 // Author: Mike McCauley (mikem@airspayce.com)
 // Copyright (C) 2014 Mike McCauley
-// $Id: RH_NRF905.h,v 1.5 2014/05/08 08:53:26 mikem Exp mikem $
+// $Id: RH_NRF905.h,v 1.5 2014/05/08 08:53:26 mikem Exp $
 //
 
 #ifndef RH_NRF905_h
@@ -326,8 +326,15 @@ public:
     /// \return true if the chip is in transmit mode and there is a transmission in progress
     bool isSending();
 
+    /// Prints the value of a single chip register
+    /// to the Serial device if RH_HAVE_SERIAL is defined for the current platform
+    /// For debugging purposes only.
+    /// \return true on success
+    bool printRegister(uint8_t reg);
+
     /// Prints the value of all chip registers
-    /// for debugging purposes
+    /// to the Serial device if RH_HAVE_SERIAL is defined for the current platform
+    /// For debugging purposes only.
     /// \return true on success
     bool printRegisters();
 

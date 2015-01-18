@@ -2,11 +2,19 @@
 // Author: Mike McCauley (mikem@airspayce.com)
 // Copyright (C) 2011 Mike McCauley
 // Contributed by Joanna Rutkowska
-// $Id: RHHardwareSPI.cpp,v 1.8 2014/05/03 00:20:36 mikem Exp mikem $
+// $Id: RHHardwareSPI.cpp,v 1.11 2014/08/12 00:54:52 mikem Exp $
 
 #include <RHHardwareSPI.h>
 
+// Declare a single default instance of the hardware SPI interface class
+RHHardwareSPI hardware_spi;
+
+#ifdef RH_HAVE_HARDWARE_SPI
+
 #if (RH_PLATFORM == RH_PLATFORM_STM32) // Maple etc
+// Declare an SPI interface to use
+HardwareSPI SPI(1);
+#elif (RH_PLATFORM == RH_PLATFORM_STM32STD) // STM32F4 Discovery
 // Declare an SPI interface to use
 HardwareSPI SPI(1);
 #endif
@@ -23,9 +31,6 @@ HardwareSPI SPI(1);
  #define SPI_CLOCK_DIV2  (VARIANT_MCK/10500000) // 8MHz
  #define SPI_CLOCK_DIV1  (VARIANT_MCK/5250000)  // 16MHz
 #endif
-
-// Declare a single default instance of the hardware SPI interface class
-RHHardwareSPI hardware_spi;
 
 RHHardwareSPI::RHHardwareSPI(Frequency frequency, BitOrder bitOrder, DataMode dataMode)
     :
@@ -54,6 +59,7 @@ void RHHardwareSPI::detachInterrupt()
     
 void RHHardwareSPI::begin() 
 {
+    // Sigh: there are no common symbols for some of these SPI options across all platforms
 #if (RH_PLATFORM == RH_PLATFORM_ARDUINO) || (RH_PLATFORM == RH_PLATFORM_UNO32)
     uint8_t dataMode;
     if (_dataMode == DataMode0)
@@ -90,24 +96,35 @@ void RHHardwareSPI::begin()
     {
 	case Frequency1MHz:
 	default:
-	    //divider = SPI_CLOCK_DIV16;
-		divider = SPI_CLOCK_DIV128;
+#if F_CPU == 8000000
+	    divider = SPI_CLOCK_DIV8;
+#else
+	    divider = SPI_CLOCK_DIV16;
+#endif
 	    break;
 
 	case Frequency2MHz:
+#if F_CPU == 8000000
+	    divider = SPI_CLOCK_DIV4;
+#else
 	    divider = SPI_CLOCK_DIV8;
+#endif
 	    break;
 
 	case Frequency4MHz:
+#if F_CPU == 8000000
+	    divider = SPI_CLOCK_DIV2;
+#else
 	    divider = SPI_CLOCK_DIV4;
+#endif
 	    break;
 
 	case Frequency8MHz:
-	    divider = SPI_CLOCK_DIV2;
+	    divider = SPI_CLOCK_DIV2; // 4MHz on an 8MHz Arduino
 	    break;
 
 	case Frequency16MHz:
-	    divider = SPI_CLOCK_DIV2; // Not really 16MHz, only 8
+	    divider = SPI_CLOCK_DIV2; // Not really 16MHz, only 8MHz. 4MHz on an 8MHz Arduino
 	    break;
 
     }
@@ -161,6 +178,51 @@ void RHHardwareSPI::begin()
     }
     SPI.begin(frequency, bitOrder, dataMode);
 
+#elif (RH_PLATFORM == RH_PLATFORM_STM32STD) // STM32F4 discovery
+    uint8_t dataMode;
+    if (_dataMode == DataMode0)
+	dataMode = SPI_MODE0;
+    else if (_dataMode == DataMode1)
+	dataMode = SPI_MODE1;
+    else if (_dataMode == DataMode2)
+	dataMode = SPI_MODE2;
+    else if (_dataMode == DataMode3)
+	dataMode = SPI_MODE3;
+    else
+	dataMode = SPI_MODE0;
+
+    uint32_t bitOrder;
+    if (_bitOrder == BitOrderLSBFirst)
+	bitOrder = LSBFIRST;
+    else
+	bitOrder = MSBFIRST;
+
+    SPIFrequency frequency; // Yes, I know these are not exact equivalents.
+    switch (_frequency)
+    {
+	case Frequency1MHz:
+	default:
+	    frequency = SPI_1_3125MHZ;
+	    break;
+
+	case Frequency2MHz:
+	    frequency = SPI_2_625MHZ;
+	    break;
+
+	case Frequency4MHz:
+	    frequency = SPI_5_25MHZ;
+	    break;
+
+	case Frequency8MHz:
+	    frequency = SPI_10_5MHZ;
+	    break;
+
+	case Frequency16MHz:
+	    frequency = SPI_21_0MHZ;
+	    break;
+
+    }
+    SPI.begin(frequency, bitOrder, dataMode);
 #else
  #warning RHHardwareSPI does not support this platform yet. Consider adding it and contributing a patch.
 #endif
@@ -170,4 +232,6 @@ void RHHardwareSPI::end()
 {
     return SPI.end();
 }
+
+#endif
 

@@ -2,7 +2,7 @@
 //
 // Author: Mike McCauley (mikem@airspayce.com)
 // Copyright (C) 2011 Mike McCauley
-// $Id: RHMesh.h,v 1.6 2014/04/30 00:04:35 mikem Exp mikem $
+// $Id: RHMesh.h,v 1.11 2014/08/27 22:00:36 mikem Exp $
 
 #ifndef RHMesh_h
 #define RHMesh_h
@@ -94,6 +94,15 @@
 ///
 /// Part of the Arduino RH library for operating with HopeRF RH compatible transceivers 
 /// (see http://www.hoperf.com)
+///
+/// \par Memory
+///
+/// RHMesh programs require significant amount of SRAM, often approaching 2kbytes, 
+/// which is beyond or at the limits of some Arduinos and other processors. Programs 
+/// with additional software besides basic RHMesh programs may well require even more. If you have insufficient
+/// SRAM for your program, it may result in failure to run, or wierd crashes and other hard to trace behaviour.
+/// In this event you should consider a processor with more SRAM, such as the MotienoMEGA with 16k
+/// (https://lowpowerlab.com/shop/moteinomega) or others.
 class RHMesh : public RHRouter
 {
 public:
@@ -144,14 +153,17 @@ public:
     /// (but not from the destination node (if that is different).
     /// \param [in] buf The application message data
     /// \param [in] len Number of octets in the application message data. 0 is permitted
-    /// \param [in] dest The destination node address
+    /// \param [in] dest The destination node address. If the address is RH_BROADCAST_ADDRESS (255)
+    /// the message will be broadcast to all the nearby nodes, but not routed or relayed.
+    /// \param [in] flags Optional flags for use by subclasses or application layer, 
+    ///             delivered end-to-end to the dest address. The receiver can recover the flags with recvFromAck().
     /// \return The result code:
     ///         - RH_ROUTER_ERROR_NONE Message was routed and delivered to the next hop 
     ///           (not necessarily to the final dest address)
     ///         - RH_ROUTER_ERROR_NO_ROUTE There was no route for dest in the local routing table
     ///         - RH_ROUTER_ERROR_UNABLE_TO_DELIVER Not able to deliver to the next hop 
     ///           (usually because it dod not acknowledge due to being off the air or out of range
-    uint8_t sendtoWait(uint8_t* buf, uint8_t len, uint8_t dest);
+    uint8_t sendtoWait(uint8_t* buf, uint8_t len, uint8_t dest, uint8_t flags = 0);
 
     /// Starts the receiver if it is not running already.
     /// If there is a valid application layer message available for this node (or RH_BROADCAST_ADDRESS), 
@@ -172,7 +184,7 @@ public:
     /// \param[in] id If present and not NULL, the referenced uint8_t will be set to the ID
     /// \param[in] flags If present and not NULL, the referenced uint8_t will be set to the FLAGS
     /// (not just those addressed to this node).
-    /// \return true if a valid message was recvived for this node and copied to buf
+    /// \return true if a valid message was received for this node and copied to buf
     bool recvfromAck(uint8_t* buf, uint8_t* len, uint8_t* source = NULL, uint8_t* dest = NULL, uint8_t* id = NULL, uint8_t* flags = NULL);
 
     /// Starts the receiver if it is not running already.
@@ -208,24 +220,24 @@ protected:
     /// Try to resolve a route for the given address. Blocks while discovering the route
     /// which may take up to 4000 msec.
     /// Virtual so subclasses can override.
-    /// \param [in] address The physical addres to resolve
+    /// \param [in] address The physical address to resolve
     /// \return true if the address was resolved and added to the local routing table
     virtual bool doArp(uint8_t address);
 
     /// Tests if the given address of length addresslen is indentical to the
-    /// physical addres of this node.
+    /// physical address of this node.
     /// RHMesh always ikmplements p[hysical addresses as the 1 octet address of the node
     /// given by _thisAddress
     /// Called by recvfromAck() to test whether a RH_MESH_MESSAGE_TYPE_ROUTE_DISCOVERY_REQUEST
     /// is for this node.
-    /// Subclasses may want to override to implemnt mode complicated or longer physical addresses
+    /// Subclasses may want to override to implement more complicated or longer physical addresses
     /// \param [in] address Address of the pyysical addres being tested
     /// \param [in] addresslen Lengthof the address in bytes
     /// \return true if the physical address of this node is identical to address
     virtual bool isPhysicalAddress(uint8_t* address, uint8_t addresslen);
 
 private:
-    /// Temporary mesage buffer
+    /// Temporary message buffer
     static uint8_t _tmpMessage[RH_ROUTER_MAX_MESSAGE_LEN];
 
 };

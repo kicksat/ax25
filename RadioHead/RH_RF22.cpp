@@ -1,7 +1,7 @@
 // RH_RF22.cpp
 //
 // Copyright (C) 2011 Mike McCauley
-// $Id: RH_RF22.cpp,v 1.16 2014/05/18 06:42:31 mikem Exp mikem $
+// $Id: RH_RF22.cpp,v 1.22 2014/09/17 22:41:47 mikem Exp $
 
 #include <RH_RF22.h>
 
@@ -65,15 +65,26 @@ RH_RF22::RH_RF22(uint8_t slaveSelectPin, uint8_t interruptPin, RHGenericSPI& spi
     _polynomial = CRC_16_IBM; // Historical
 }
 
+void RH_RF22::setIdleMode(uint8_t idleMode)
+{
+    _idleMode = idleMode;
+}
+
 bool RH_RF22::init()
 {
     if (!RHSPIDriver::init())
-	return false;
+    {
+        //Serial.print("SPI Init Failure");
+        return false;
+    }
 
     // Determine the interrupt number that corresponds to the interruptPin
     int interruptNumber = digitalPinToInterrupt(_interruptPin);
     if (interruptNumber == NOT_AN_INTERRUPT)
-	return false;
+    {
+        //Serial.print("Interrupt Pin Failure");
+        return false;
+    }
 
     // Software reset the device
     reset();
@@ -84,7 +95,8 @@ bool RH_RF22::init()
     if (   _deviceType != RH_RF22_DEVICE_TYPE_RX_TRX
         && _deviceType != RH_RF22_DEVICE_TYPE_TX)
     {
-	return false;
+        //Serial.print("Device Connection Failure");
+	   return false;
     }
 
     // Add by Adrien van den Bossche <vandenbo@univ-tlse2.fr> for Teensy
@@ -111,7 +123,13 @@ bool RH_RF22::init()
     else if (_interruptCount == 2)
 	attachInterrupt(interruptNumber, isr2, FALLING);
     else
-	return false; // Too many devices, not enough interrupt vectors
+    {
+        //Serial.print("Interrupt Init Failure \t Interrupt Count = ");
+        //Serial.println(_interruptCount);
+        return false; // Too many devices, not enough interrupt vectors
+    }
+    //Serial.print("Interrupt Count = ");
+    //Serial.println(_interruptCount);
     _interruptCount++;
 
     setModeIdle();
@@ -145,14 +163,6 @@ bool RH_RF22::init()
     uint8_t syncwords[] = { 0x2d, 0xd4 };
     setSyncWords(syncwords, sizeof(syncwords));
     setPromiscuous(false); 
-    // Check the TO header against RH_RF22_DEFAULT_NODE_ADDRESS
-    spiWrite(RH_RF22_REG_3F_CHECK_HEADER3, RH_RF22_DEFAULT_NODE_ADDRESS);
-    // Set the default transmit header values
-    setHeaderTo(RH_RF22_DEFAULT_NODE_ADDRESS);
-    setHeaderFrom(RH_RF22_DEFAULT_NODE_ADDRESS);
-    setHeaderId(0);
-    setHeaderFlags(0);
-
 
     // Set some defaults. An innocuous ISM frequency, and reasonable pull-in
     setFrequency(434.0, 0.05);
@@ -170,12 +180,12 @@ bool RH_RF22::init()
 // C++ level interrupt handler for this instance
 void RH_RF22::handleInterrupt()
 {
-    digitalWrite(2, HIGH);
     uint8_t _lastInterruptFlags[2];
     // Read the interrupt flags which clears the interrupt
     spiBurstRead(RH_RF22_REG_03_INTERRUPT_STATUS1, _lastInterruptFlags, 2);
 
 #if 0
+    // DEVELOPER TESTING ONLY
     // Caution: Serial printing in this interrupt routine can cause mysterious crashes
     Serial.print("interrupt ");
     Serial.print(_lastInterruptFlags[0], HEX);
@@ -186,6 +196,7 @@ void RH_RF22::handleInterrupt()
 #endif
 
 #if 0
+    // DEVELOPER TESTING ONLY
     // TESTING: fake an RH_RF22_IFFERROR
     static int counter = 0;
     if (_lastInterruptFlags[0] & RH_RF22_IPKSENT && counter++ == 10)
@@ -208,7 +219,7 @@ void RH_RF22::handleInterrupt()
     if (_lastInterruptFlags[0] & RH_RF22_ITXFFAEM)
     {
 	// See if more data has to be loaded into the Tx FIFO 
-	sendNextFragment();
+  	sendNextFragment();
 //	Serial.println("ITXFFAEM");  
     }
     if (_lastInterruptFlags[0] & RH_RF22_IRXFFAFULL)
@@ -258,6 +269,10 @@ void RH_RF22::handleInterrupt()
 	}
 
 	spiBurstRead(RH_RF22_REG_7F_FIFO_ACCESS, _buf + _bufLen, len - _bufLen);
+	_rxHeaderTo = spiRead(RH_RF22_REG_47_RECEIVED_HEADER3);
+	_rxHeaderFrom = spiRead(RH_RF22_REG_48_RECEIVED_HEADER2);
+	_rxHeaderId = spiRead(RH_RF22_REG_49_RECEIVED_HEADER1);
+	_rxHeaderFlags = spiRead(RH_RF22_REG_4A_RECEIVED_HEADER0);
 	_rxGood++;
 	_bufLen = len;
 	_mode = RHModeIdle;
@@ -275,7 +290,7 @@ void RH_RF22::handleInterrupt()
     if (_lastInterruptFlags[1] & RH_RF22_IPREAVAL)
     {
 //	Serial.println("IPREAVAL");  
-	_lastRssi = spiRead(RH_RF22_REG_26_RSSI);
+	_lastRssi = (int8_t)(-120 + ((spiRead(RH_RF22_REG_26_RSSI) / 2)));
 	_lastPreambleTime = millis();
 	resetRxFifo();
 	clearRxBuf();
@@ -434,6 +449,16 @@ void RH_RF22::setModeIdle()
     }
 }
 
+bool RH_RF22::sleep()
+{
+    if (_mode != RHModeSleep)
+    {
+	setOpMode(0);
+	_mode = RHModeSleep;
+    }
+    return true;
+}
+
 void RH_RF22::setModeRx()
 {
     if (_mode != RHModeRx)
@@ -510,7 +535,11 @@ void RH_RF22::clearRxBuf()
 bool RH_RF22::available()
 {
     if (!_rxBufValid)
+    {
+	if (_mode == RHModeTx)
+	    return false;
 	setModeRx(); // Make sure we are receiving
+    }
     return _rxBufValid;
 }
 
@@ -561,6 +590,10 @@ bool RH_RF22::send(const uint8_t* data, uint8_t len)
     bool ret = true;
     waitPacketSent();
     ATOMIC_BLOCK_START;
+    spiWrite(RH_RF22_REG_3A_TRANSMIT_HEADER3, _txHeaderTo);
+    spiWrite(RH_RF22_REG_3B_TRANSMIT_HEADER2, _txHeaderFrom);
+    spiWrite(RH_RF22_REG_3C_TRANSMIT_HEADER1, _txHeaderId);
+    spiWrite(RH_RF22_REG_3D_TRANSMIT_HEADER0, _txHeaderFlags);
     if (!fillTxBuf(data, len))
 	ret = false;
     else
@@ -647,46 +680,6 @@ void RH_RF22::handleExternalInterrupt()
 // Default implmentation does nothing. Override if you wish
 void RH_RF22::handleWakeupTimerInterrupt()
 {
-}
-
-void RH_RF22::setHeaderTo(uint8_t to)
-{
-    spiWrite(RH_RF22_REG_3A_TRANSMIT_HEADER3, to);
-}
-
-void RH_RF22::setHeaderFrom(uint8_t from)
-{
-    spiWrite(RH_RF22_REG_3B_TRANSMIT_HEADER2, from);
-}
-
-void RH_RF22::setHeaderId(uint8_t id)
-{
-    spiWrite(RH_RF22_REG_3C_TRANSMIT_HEADER1, id);
-}
-
-void RH_RF22::setHeaderFlags(uint8_t flags)
-{
-    spiWrite(RH_RF22_REG_3D_TRANSMIT_HEADER0, flags);
-}
-
-uint8_t RH_RF22::headerTo()
-{
-    return spiRead(RH_RF22_REG_47_RECEIVED_HEADER3);
-}
-
-uint8_t RH_RF22::headerFrom()
-{
-    return spiRead(RH_RF22_REG_48_RECEIVED_HEADER2);
-}
-
-uint8_t RH_RF22::headerId()
-{
-    return spiRead(RH_RF22_REG_49_RECEIVED_HEADER1);
-}
-
-uint8_t RH_RF22::headerFlags()
-{
-    return spiRead(RH_RF22_REG_4A_RECEIVED_HEADER0);
 }
 
 void RH_RF22::setPromiscuous(bool promiscuous)

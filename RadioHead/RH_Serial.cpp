@@ -1,17 +1,11 @@
 // RH_Serial.cpp
 //
 // Copyright (C) 2014 Mike McCauley
-// $Id: RH_Serial.cpp,v 1.8 2014/05/03 00:20:36 mikem Exp mikem $
+// $Id: RH_Serial.cpp,v 1.10 2014/06/24 02:40:12 mikem Exp $
 
 #include <RH_Serial.h>
 #include <HardwareSerial.h>
-
-// Arduino 1.0 includes crc16.h, so use it else can get clashes with other libraries
-#if (RH_PLATFORM == RH_PLATFORM_ARDUINO) && (ARDUINO >= 100) && !defined(__arm__)
- #include <util/crc16.h>
-#else
- #include <RHutil/crc16.h>
-#endif
+#include <RHCRC.h>
 
 RH_Serial::RH_Serial(HardwareSerial& serial)
     :
@@ -31,7 +25,7 @@ bool RH_Serial::init()
 // Call this often
 bool RH_Serial::available()
 {
-    while (_serial.available())
+    while (!_rxBufValid &&_serial.available())
 	handleRx(_serial.read());
     return _rxBufValid;
 }
@@ -74,8 +68,8 @@ void  RH_Serial::handleRx(uint8_t ch)
 	    if (ch == ETX)
 	    {
 		// add fcs for DLE, ETX
-		_rxFcs = _crc_ccitt_update(_rxFcs, DLE);
-		_rxFcs = _crc_ccitt_update(_rxFcs, ETX);
+		_rxFcs = RHcrc_ccitt_update(_rxFcs, DLE);
+		_rxFcs = RHcrc_ccitt_update(_rxFcs, ETX);
 		_rxState = RxStateWaitFCS1; // End frame
 	    }
 	    else if (ch == DLE)
@@ -121,7 +115,7 @@ void RH_Serial::appendRxBuf(uint8_t ch)
     {
 	// Normal data, save and add to FCS
 	_rxBuf[_rxBufLen++] = ch;
-	_rxFcs = _crc_ccitt_update(_rxFcs, ch);
+	_rxFcs = RHcrc_ccitt_update(_rxFcs, ch);
     }
     // If the buffer overflows, we dont record the trailing data, and the FCS will be wrong,
     // causing the message to be dropped when the FCS is received
@@ -181,9 +175,9 @@ bool RH_Serial::send(const uint8_t* data, uint8_t len)
 	txData(*data++);
     // End of message
     _serial.write(DLE);
-    _txFcs = _crc_ccitt_update(_txFcs, DLE);
+    _txFcs = RHcrc_ccitt_update(_txFcs, DLE);
     _serial.write(ETX);
-    _txFcs = _crc_ccitt_update(_txFcs, ETX);
+    _txFcs = RHcrc_ccitt_update(_txFcs, ETX);
 
     // Now send the calculated FCS for this message
     _serial.write((_txFcs >> 8) & 0xff);
@@ -196,7 +190,7 @@ void  RH_Serial::txData(uint8_t ch)
     if (ch == DLE)    // DLE stuffing required?
 	_serial.write(DLE); // Not in FCS
     _serial.write(ch);
-    _txFcs = _crc_ccitt_update(_txFcs, ch);
+    _txFcs = RHcrc_ccitt_update(_txFcs, ch);
 }
 
 uint8_t RH_Serial::maxMessageLength()

@@ -1,7 +1,7 @@
 // RHGenericDriver.cpp
 //
 // Copyright (C) 2014 Mike McCauley
-// $Id: RHGenericDriver.cpp,v 1.9 2014/05/08 08:53:26 mikem Exp mikem $
+// $Id: RHGenericDriver.cpp,v 1.17 2014/09/17 22:41:47 mikem Exp $
 
 #include <RHGenericDriver.h>
 
@@ -11,8 +11,11 @@ RHGenericDriver::RHGenericDriver()
     _thisAddress(RH_BROADCAST_ADDRESS),
     _txHeaderTo(RH_BROADCAST_ADDRESS),
     _txHeaderFrom(RH_BROADCAST_ADDRESS),
+    _txHeaderId(0),
     _txHeaderFlags(0),
-    _txHeaderId(0)
+    _rxBad(0),
+    _rxGood(0),
+    _txGood(0)
 {
 }
 
@@ -87,9 +90,10 @@ void RHGenericDriver::setHeaderId(uint8_t id)
     _txHeaderId = id;
 }
 
-void RHGenericDriver::setHeaderFlags(uint8_t flags)
+void RHGenericDriver::setHeaderFlags(uint8_t set, uint8_t clear)
 {
-    _txHeaderFlags = flags;
+    _txHeaderFlags &= ~clear;
+    _txHeaderFlags |= set;
 }
 
 uint8_t RHGenericDriver::headerTo()
@@ -127,11 +131,17 @@ void  RHGenericDriver::setMode(RHMode mode)
     _mode = mode;
 }
 
+bool  RHGenericDriver::sleep()
+{
+    return false;
+}
+
 // Diagnostic help
 void RHGenericDriver::printBuffer(const char* prompt, const uint8_t* buf, uint8_t len)
 {
     uint8_t i;
 
+#ifdef RH_HAVE_SERIAL
     Serial.println(prompt);
     for (i = 0; i < len; i++)
     {
@@ -143,6 +153,30 @@ void RHGenericDriver::printBuffer(const char* prompt, const uint8_t* buf, uint8_
 	    Serial.print(' ');
 	}
     }
-    Serial.println(' ');
+    Serial.println("");
+#endif
 }
 
+uint16_t RHGenericDriver::rxBad()
+{
+    return _rxBad;
+}
+
+uint16_t RHGenericDriver::rxGood()
+{
+    return _rxGood;
+}
+
+uint16_t RHGenericDriver::txGood()
+{
+    return _txGood;
+}
+
+#if (RH_PLATFORM == RH_PLATFORM_ARDUINO) && defined(RH_PLATFORM_ATTINY)
+// Tinycore does not have __cxa_pure_virtual, so without this we
+// get linking complaints from the default code generated for pure virtual functions
+extern "C" void __cxa_pure_virtual()
+{
+    while (1);
+}
+#endif

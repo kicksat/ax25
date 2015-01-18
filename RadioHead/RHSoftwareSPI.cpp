@@ -9,9 +9,12 @@ RHSoftwareSPI::RHSoftwareSPI(Frequency frequency, BitOrder bitOrder, DataMode da
     :
     RHGenericSPI(frequency, bitOrder, dataMode)
 {
+    setPins(12, 11, 13);
 }
 
-
+// Caution: on Arduino Uno and many other CPUs, digitalWrite is quite slow, taking about 4us
+// digitalWrite is also slow, taking about 3.5us
+// resulting in very slow SPI bus speeds using this technique, up to about 120us per octet of transfer
 uint8_t RHSoftwareSPI::transfer(uint8_t data) 
 {
     uint8_t readData;
@@ -41,7 +44,6 @@ uint8_t RHSoftwareSPI::transfer(uint8_t data)
 	    writeData = LOW;
 	}
 
-
 	if (_clockPhase == 1)
 	{
 	    // CPHA=1, miso/mosi changing state now
@@ -67,7 +69,6 @@ uint8_t RHSoftwareSPI::transfer(uint8_t data)
 	    delayPeriod();
 	}
 			
-
 	if (_bitOrder == BitOrderMSBFirst)
 	{
 	    mask >>= 1;
@@ -109,6 +110,7 @@ void RHSoftwareSPI::begin()
     }
     digitalWrite(_sck, _clockPolarity);
 
+    // Caution: these counts assume that digitalWrite is very fast, which is usually not true
     uint8_t delayCounts;
     switch (_frequency)
     {
@@ -131,7 +133,6 @@ void RHSoftwareSPI::begin()
 	case Frequency16MHz:
 	    delayCounts = 0;
 	    break;
-
     }
 }
 

@@ -7,6 +7,7 @@
 // It is designed to work with the other example nrf24_server.
 // Tested on Uno with Sparkfun NRF25L01 module
 // Tested on Anarduino Mini (http://www.anarduino.com/mini/) with RFM73 module
+// Tested on Arduino Mega with Sparkfun WRL-00691 NRF25L01 module
 
 #include <SPI.h>
 #include <RH_NRF24.h>

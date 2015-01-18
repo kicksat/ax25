@@ -1,11 +1,11 @@
 // RH_RF69.cpp
 //
 // Copyright (C) 2011 Mike McCauley
-// $Id: RH_RF69.cpp,v 1.10 2014/05/08 08:53:26 mikem Exp mikem $
+// $Id: RH_RF69.cpp,v 1.23 2014/09/17 22:41:47 mikem Exp $
 
 #include <RH_RF69.h>
 
-// Interrupt vectors for the 2 Arduino interrupt pins
+// Interrupt vectors for the 3 Arduino interrupt pins
 // Each interrupt can be handled by a different instance of RH_RF69, allowing you to have
 // 2 or more RF69s per Arduino
 RH_RF69* RH_RF69::_deviceForInterrupt[RH_RF69_NUM_INTERRUPTS] = {0, 0, 0};
@@ -17,47 +17,71 @@ uint8_t RH_RF69::_interruptCount = 0; // Index into _deviceForInterrupt for next
 // modulation index = 2 * Fdev / BR
 // Note that I have not had much success with FSK with Fd > ~5
 // You have to construct these by hand, using the data from the RF69 Datasheet :-(
+// or use the SX1231 starter kit software (Ctl-Alt-N to use that without a connected radio)
 #define CONFIG_FSK (RH_RF69_DATAMODUL_DATAMODE_PACKET | RH_RF69_DATAMODUL_MODULATIONTYPE_FSK | RH_RF69_DATAMODUL_MODULATIONSHAPING_FSK_NONE)
 #define CONFIG_GFSK (RH_RF69_DATAMODUL_DATAMODE_PACKET | RH_RF69_DATAMODUL_MODULATIONTYPE_FSK | RH_RF69_DATAMODUL_MODULATIONSHAPING_FSK_BT1_0)
 #define CONFIG_OOK (RH_RF69_DATAMODUL_DATAMODE_PACKET | RH_RF69_DATAMODUL_MODULATIONTYPE_OOK | RH_RF69_DATAMODUL_MODULATIONSHAPING_OOK_NONE)
 
 // Choices for RH_RF69_REG_37_PACKETCONFIG1:
 #define CONFIG_NOWHITE (RH_RF69_PACKETCONFIG1_PACKETFORMAT_VARIABLE | RH_RF69_PACKETCONFIG1_DCFREE_NONE | RH_RF69_PACKETCONFIG1_CRC_ON | RH_RF69_PACKETCONFIG1_ADDRESSFILTERING_NONE)
-#define CONFIG_WHITE (RH_RF69_PACKETCONFIG1_PACKETFORMAT_VARIABLE | RH_RF69_PACKETCONFIG1_DCFREE_WHITENING | RH_RF69_PACKETCONFIG1_ADDRESSFILTERING_NONE)
-#define CONFIG_MANCHESTER (RH_RF69_PACKETCONFIG1_PACKETFORMAT_VARIABLE | RH_RF69_PACKETCONFIG1_DCFREE_MANCHESTER | RH_RF69_PACKETCONFIG1_ADDRESSFILTERING_NONE)
+#define CONFIG_WHITE (RH_RF69_PACKETCONFIG1_PACKETFORMAT_VARIABLE | RH_RF69_PACKETCONFIG1_DCFREE_WHITENING | RH_RF69_PACKETCONFIG1_CRC_ON | RH_RF69_PACKETCONFIG1_ADDRESSFILTERING_NONE)
+#define CONFIG_MANCHESTER (RH_RF69_PACKETCONFIG1_PACKETFORMAT_VARIABLE | RH_RF69_PACKETCONFIG1_DCFREE_MANCHESTER | RH_RF69_PACKETCONFIG1_CRC_ON | RH_RF69_PACKETCONFIG1_ADDRESSFILTERING_NONE)
 PROGMEM static const RH_RF69::ModemConfig MODEM_CONFIG_TABLE[] =
 {
-    //  02,        03,   04,   05,   06,   19,   37
-    // FSK, No Manchester, no shaping, no whitening, CRC, no address filtering
-    { CONFIG_FSK,  0x3e, 0x80, 0x00, 0x52, 0x56, CONFIG_NOWHITE}, // FSK_Rb2Fd5
-    { CONFIG_FSK,  0x34, 0x15, 0x00, 0x27, 0x56, CONFIG_NOWHITE}, // FSK_Rb2_4Fd2_4
-    { CONFIG_FSK,  0x1a, 0x0b, 0x00, 0x4f, 0x55, CONFIG_NOWHITE}, // FSK_Rb4_8Fd4_8
-    { CONFIG_FSK,  0x0d, 0x05, 0x00, 0x9d, 0x54, CONFIG_NOWHITE}, // FSK_Rb9_6Fd9_6
-    { CONFIG_FSK,  0x06, 0x83, 0x01, 0x3b, 0x53, CONFIG_NOWHITE}, // FSK_Rb19_2Fd19_2
-    { CONFIG_FSK,  0x03, 0x41, 0x02, 0x75, 0x52, CONFIG_NOWHITE}, // FSK_Rb38_4Fd38_4
-    { CONFIG_FSK,  0x02, 0x2c, 0x07, 0xae, 0x4a, CONFIG_NOWHITE}, // FSK_Rb57_6Fd120
-    { CONFIG_FSK,  0x01, 0x00, 0x08, 0x22, 0x41, CONFIG_NOWHITE}, // FSK_Rb125Fd125
-    { CONFIG_FSK,  0x00, 0x80, 0x10, 0x00, 0x40, CONFIG_NOWHITE}, // FSK_Rb250Fd250
-    { CONFIG_FSK,  0x02, 0x40, 0x03, 0x33, 0x42, CONFIG_NOWHITE}, // FSK_Rb55555Fd50 
+    //  02,        03,   04,   05,   06,   19,   1a,  37
+    // FSK, No Manchester, no shaping, whitening, CRC, no address filtering
+    // AFC BW == RX BW == 2 x bit rate
+    // Low modulation indexes of ~ 1 at slow speeds do not seem to work very well. Choose MI of 2.
+    { CONFIG_FSK,  0x3e, 0x80, 0x00, 0x52, 0xf4, 0xf4, CONFIG_WHITE}, // FSK_Rb2Fd5      
+    { CONFIG_FSK,  0x34, 0x15, 0x00, 0x4f, 0xf4, 0xf4, CONFIG_WHITE}, // FSK_Rb2_4Fd4_8
+    { CONFIG_FSK,  0x1a, 0x0b, 0x00, 0x9d, 0xf4, 0xf4, CONFIG_WHITE}, // FSK_Rb4_8Fd9_6
 
-    //  02,        03,   04,   05,   06,   19,   37
-    // GFSK (BT=0.5), No Manchester, BT=0.5 shaping, no whitening, CRC, no address filtering
-    { CONFIG_GFSK, 0x3e, 0x80, 0x00, 0x52, 0x56, CONFIG_NOWHITE}, // GFSK_Rb2Fd5
-    { CONFIG_GFSK, 0x34, 0x15, 0x00, 0x27, 0x56, CONFIG_NOWHITE}, // GFSK_Rb2_4Fd2_4
-    { CONFIG_GFSK, 0x1a, 0x0b, 0x00, 0x4f, 0x55, CONFIG_NOWHITE}, // GFSK_Rb4_8Fd4_8
-    { CONFIG_GFSK, 0x0d, 0x05, 0x00, 0x9d, 0x54, CONFIG_NOWHITE}, // GFSK_Rb9_6Fd9_6
-    { CONFIG_GFSK, 0x06, 0x83, 0x01, 0x3b, 0x53, CONFIG_NOWHITE}, // GFSK_Rb19_2Fd19_2
-    { CONFIG_GFSK, 0x03, 0x41, 0x02, 0x75, 0x52, CONFIG_NOWHITE}, // GFSK_Rb38_4Fd38_4 working most but not all the time
-    { CONFIG_GFSK, 0x02, 0x2c, 0x07, 0xae, 0x4a, CONFIG_NOWHITE}, // GFSK_Rb57_6Fd120 occasionally works
-    { CONFIG_GFSK, 0x01, 0x00, 0x08, 0x22, 0x41, CONFIG_NOWHITE}, // GFSK_Rb125Fd125
-    { CONFIG_GFSK, 0x00, 0x80, 0x10, 0x00, 0x40, CONFIG_NOWHITE}, // GFSK_Rb250Fd250
-    { CONFIG_GFSK, 0x02, 0x40, 0x03, 0x33, 0x42, CONFIG_NOWHITE}, // GFSK_Rb55555Fd50 
+    { CONFIG_FSK,  0x0d, 0x05, 0x01, 0x3b, 0xf4, 0xf4, CONFIG_WHITE}, // FSK_Rb9_6Fd19_2
+    { CONFIG_FSK,  0x06, 0x83, 0x02, 0x75, 0xf3, 0xf3, CONFIG_WHITE}, // FSK_Rb19_2Fd38_4
+    { CONFIG_FSK,  0x03, 0x41, 0x04, 0xea, 0xf2, 0xf2, CONFIG_WHITE}, // FSK_Rb38_4Fd76_8
 
-    //  02,        03,   04,   05,   06,   19,   37
-    // OOK, No Manchester, no shaping, no whitening, CRC, no address filtering
-    // Caution: this mode has been observed to not be reliable when encryption is enabled
-    // Also it does not interoperate with RF22 in similar mode.
-//    { CONFIG_OOK,  0x68, 0x2b, 0x00, 0x00, 0x51, CONFIG_NOWHITE}, // OOK_Rb1_2Bw75
+    { CONFIG_FSK,  0x02, 0x2c, 0x07, 0xae, 0xe2, 0xe2, CONFIG_WHITE}, // FSK_Rb57_6Fd120
+    { CONFIG_FSK,  0x01, 0x00, 0x08, 0x00, 0xe1, 0xe1, CONFIG_WHITE}, // FSK_Rb125Fd125
+    { CONFIG_FSK,  0x00, 0x80, 0x10, 0x00, 0xe0, 0xe0, CONFIG_WHITE}, // FSK_Rb250Fd250
+    { CONFIG_FSK,  0x02, 0x40, 0x03, 0x33, 0x42, 0x42, CONFIG_WHITE}, // FSK_Rb55555Fd50 
+
+    //  02,        03,   04,   05,   06,   19,   1a,  37
+    // GFSK (BT=1.0), No Manchester, whitening, CRC, no address filtering
+    // AFC BW == RX BW == 2 x bit rate
+    { CONFIG_GFSK, 0x3e, 0x80, 0x00, 0x52, 0xf4, 0xf5, CONFIG_WHITE}, // GFSK_Rb2Fd5
+    { CONFIG_GFSK, 0x34, 0x15, 0x00, 0x4f, 0xf4, 0xf4, CONFIG_WHITE}, // GFSK_Rb2_4Fd4_8
+    { CONFIG_GFSK, 0x1a, 0x0b, 0x00, 0x9d, 0xf4, 0xf4, CONFIG_WHITE}, // GFSK_Rb4_8Fd9_6
+
+    { CONFIG_GFSK, 0x0d, 0x05, 0x01, 0x3b, 0xf4, 0xf4, CONFIG_WHITE}, // GFSK_Rb9_6Fd19_2
+    { CONFIG_GFSK, 0x06, 0x83, 0x02, 0x75, 0xf3, 0xf3, CONFIG_WHITE}, // GFSK_Rb19_2Fd38_4
+    { CONFIG_GFSK, 0x03, 0x41, 0x04, 0xea, 0xf2, 0xf2, CONFIG_WHITE}, // GFSK_Rb38_4Fd76_8
+
+    { CONFIG_GFSK, 0x02, 0x2c, 0x07, 0xae, 0xe2, 0xe2, CONFIG_WHITE}, // GFSK_Rb57_6Fd120
+    { CONFIG_GFSK, 0x01, 0x00, 0x08, 0x00, 0xe1, 0xe1, CONFIG_WHITE}, // GFSK_Rb125Fd125
+    { CONFIG_GFSK, 0x00, 0x80, 0x10, 0x00, 0xe0, 0xe0, CONFIG_WHITE}, // GFSK_Rb250Fd250
+    { CONFIG_GFSK, 0x02, 0x40, 0x03, 0x33, 0x42, 0x42, CONFIG_WHITE}, // GFSK_Rb55555Fd50 
+
+    //  02,        03,   04,   05,   06,   19,   1a,  37
+    // OOK, No Manchester, no shaping, whitening, CRC, no address filtering
+    // with the help of the SX1231 configuration program
+    // AFC BW == RX BW
+    // All OOK configs have the default:
+    // Threshold Type: Peak
+    // Peak Threshold Step: 0.5dB
+    // Peak threshiold dec: ONce per chip
+    // Fixed threshold: 6dB
+    { CONFIG_OOK,  0x7d, 0x00, 0x00, 0x10, 0x88, 0x88, CONFIG_WHITE}, // OOK_Rb1Bw1
+    { CONFIG_OOK,  0x68, 0x2b, 0x00, 0x10, 0xf1, 0xf1, CONFIG_WHITE}, // OOK_Rb1_2Bw75
+    { CONFIG_OOK,  0x34, 0x15, 0x00, 0x10, 0xf5, 0xf5, CONFIG_WHITE}, // OOK_Rb2_4Bw4_8
+    { CONFIG_OOK,  0x1a, 0x0b, 0x00, 0x10, 0xf4, 0xf4, CONFIG_WHITE}, // OOK_Rb4_8Bw9_6
+    { CONFIG_OOK,  0x0d, 0x05, 0x00, 0x10, 0xf3, 0xf3, CONFIG_WHITE}, // OOK_Rb9_6Bw19_2
+    { CONFIG_OOK,  0x06, 0x83, 0x00, 0x10, 0xf2, 0xf2, CONFIG_WHITE}, // OOK_Rb19_2Bw38_4
+    { CONFIG_OOK,  0x03, 0xe8, 0x00, 0x10, 0xe2, 0xe2, CONFIG_WHITE}, // OOK_Rb32Bw64
+
+//    { CONFIG_FSK,  0x68, 0x2b, 0x00, 0x52, 0x55, 0x55, CONFIG_WHITE}, // works: Rb1200 Fd 5000 bw10000, DCC 400
+//    { CONFIG_FSK,  0x0c, 0x80, 0x02, 0x8f, 0x52, 0x52, CONFIG_WHITE}, // works 10/40/80
+//    { CONFIG_FSK,  0x0c, 0x80, 0x02, 0x8f, 0x53, 0x53, CONFIG_WHITE}, // works 10/40/40
+
 };
 RH_RF69::RH_RF69(uint8_t slaveSelectPin, uint8_t interruptPin, RHGenericSPI& spi)
     :
@@ -65,9 +89,11 @@ RH_RF69::RH_RF69(uint8_t slaveSelectPin, uint8_t interruptPin, RHGenericSPI& spi
 {
     _interruptPin = interruptPin;
     _idleMode = RH_RF69_OPMODE_MODE_STDBY;
-    _rxGood = 0;
-    _rxBad = 0;
-    _txGood = 0;
+}
+
+void RH_RF69::setIdleMode(uint8_t idleMode)
+{
+    _idleMode = idleMode;
 }
 
 bool RH_RF69::init()
@@ -130,13 +156,17 @@ bool RH_RF69::init()
 //    spiWrite(RH_RF69_REG_38_PAYLOADLENGTH, RH_RF69_FIFO_SIZE); // max size only for RX
     // PACKETCONFIG 2 is default 
     spiWrite(RH_RF69_REG_6F_TESTDAGC, RH_RF69_TESTDAGC_CONTINUOUSDAGC_IMPROVED_LOWBETAOFF);
+    // If high power boost set previously, disable it
+    spiWrite(RH_RF69_REG_5A_TESTPA1, RH_RF69_TESTPA1_NORMAL);
+    spiWrite(RH_RF69_REG_5C_TESTPA2, RH_RF69_TESTPA2_NORMAL);
 
     // The following can be changed later by the user if necessary.
     // Set up default configuration
     uint8_t syncwords[] = { 0x2d, 0xd4 };
     setSyncWords(syncwords, sizeof(syncwords)); // Same as RF22's
-    // Some slow, reliable default speed and modulation
-    setModemConfig(FSK_Rb2Fd5);
+    // Reasonably fast and reliable default speed and modulation
+    setModemConfig(GFSK_Rb250Fd250);
+
     // 3 would be sufficient, but this is the same as RF22's
     setPreambleLength(4);
     // An innocuous ISM frequency, same as RF22's
@@ -161,6 +191,7 @@ void RH_RF69::handleInterrupt()
     {
 	// A transmitter message has been fully sent
 	setModeIdle(); // Clears FIFO
+	_txGood++;
 //	Serial.println("PACKETSENT");
     }
     // Must look for PAYLOADREADY, not CRCOK, since only PAYLOADREADY occurs _after_ AES decryption
@@ -169,6 +200,8 @@ void RH_RF69::handleInterrupt()
     {
 	// A complete message has been received with good CRC
 	_lastRssi = -((int8_t)(spiRead(RH_RF69_REG_24_RSSIVALUE) >> 1));
+	_lastPreambleTime = millis();
+
 	setModeIdle();
 	// Save it in our buffer
 	readFifo();
@@ -237,13 +270,13 @@ int8_t RH_RF69::temperatureRead()
     spiWrite(RH_RF69_REG_4E_TEMP1, RH_RF69_TEMP1_TEMPMEASSTART); // Start the measurement
     while (spiRead(RH_RF69_REG_4E_TEMP1) & RH_RF69_TEMP1_TEMPMEASRUNNING)
 	; // Wait for the measurement to complete
-    return -(int8_t)spiRead(RH_RF69_REG_4F_TEMP2) - 40;
+    return 166 - spiRead(RH_RF69_REG_4F_TEMP2); // Very approximate, based on observation
 }
 
 bool RH_RF69::setFrequency(float centre, float afcPullInRange)
 {
     // Frf = FRF / FSTEP
-    uint32_t frf = (centre * 1000000.0) / RH_RF69_FSTEP;
+    uint32_t frf = (uint32_t)((centre * 1000000.0) / RH_RF69_FSTEP);
     spiWrite(RH_RF69_REG_07_FRFMSB, (frf >> 16) & 0xff);
     spiWrite(RH_RF69_REG_08_FRFMID, (frf >> 8) & 0xff);
     spiWrite(RH_RF69_REG_09_FRFLSB, frf & 0xff);
@@ -280,15 +313,37 @@ void RH_RF69::setModeIdle()
 {
     if (_mode != RHModeIdle)
     {
+	if (_power >= 18)
+	{
+	    // If high power boost, return power amp to receive mode
+	    spiWrite(RH_RF69_REG_5A_TESTPA1, RH_RF69_TESTPA1_NORMAL);
+	    spiWrite(RH_RF69_REG_5C_TESTPA2, RH_RF69_TESTPA2_NORMAL);
+	}
 	setOpMode(_idleMode);
 	_mode = RHModeIdle;
     }
+}
+
+bool RH_RF69::sleep()
+{
+    if (_mode != RHModeSleep)
+    {
+	spiWrite(RH_RF69_REG_01_OPMODE, RH_RF69_OPMODE_MODE_SLEEP);
+	_mode = RHModeSleep;
+    }
+    return true;
 }
 
 void RH_RF69::setModeRx()
 {
     if (_mode != RHModeRx)
     {
+	if (_power >= 18)
+	{
+	    // If high power boost, return power amp to receive mode
+	    spiWrite(RH_RF69_REG_5A_TESTPA1, RH_RF69_TESTPA1_NORMAL);
+	    spiWrite(RH_RF69_REG_5C_TESTPA2, RH_RF69_TESTPA2_NORMAL);
+	}
 	spiWrite(RH_RF69_REG_25_DIOMAPPING1, RH_RF69_DIOMAPPING1_DIO0MAPPING_01); // Set interrupt line 0 PayloadReady
 	setOpMode(RH_RF69_OPMODE_MODE_RX); // Clears FIFO
 	_mode = RHModeRx;
@@ -299,6 +354,13 @@ void RH_RF69::setModeTx()
 {
     if (_mode != RHModeTx)
     {
+	if (_power >= 18)
+	{
+	    // Set high power boost mode
+	    // Note that OCP defaults to ON so no need to change that.
+	    spiWrite(RH_RF69_REG_5A_TESTPA1, RH_RF69_TESTPA1_BOOST);
+	    spiWrite(RH_RF69_REG_5C_TESTPA2, RH_RF69_TESTPA2_BOOST);
+	}
 	spiWrite(RH_RF69_REG_25_DIOMAPPING1, RH_RF69_DIOMAPPING1_DIO0MAPPING_00); // Set interrupt line 0 PacketSent
 	setOpMode(RH_RF69_OPMODE_MODE_TX); // Clears FIFO
 	_mode = RHModeTx;
@@ -307,28 +369,32 @@ void RH_RF69::setModeTx()
 
 void RH_RF69::setTxPower(int8_t power)
 {
+    _power = power;
+
     uint8_t palevel;
-    if (power < -18)
-	power = -18;
+    if (_power < -18)
+	_power = -18;
 
     // See http://www.hoperf.com/upload/rfchip/RF69-V1.2.pdf section 3.3.6
     // for power formulas
-    if (power >= 14)
+    if (_power <= 13)
     {
+	// -18dBm to +13dBm
+	palevel = RH_RF69_PALEVEL_PA0ON | ((_power + 18) & RH_RF69_PALEVEL_OUTPUTPOWER);
+    }
+    else if (_power >= 18)
+    {
+	// +18dBm to +20dBm
 	// Need PA1+PA2
-	palevel = RH_RF69_PALEVEL_PA1ON | RH_RF69_PALEVEL_PA2ON | ((power + 14) & RH_RF69_PALEVEL_OUTPUTPOWER);
-	if (power >= 18)
-	{
-	    // For 20dBm need boost settings, not implemented yet, see section 3.3.7
-	    palevel = RH_RF69_PALEVEL_PA1ON | RH_RF69_PALEVEL_PA2ON | ((power + 11) & RH_RF69_PALEVEL_OUTPUTPOWER);
-	}
+	// Also need PA boost settings change when tx is turned on and off, see setModeTx()
+	palevel = RH_RF69_PALEVEL_PA1ON | RH_RF69_PALEVEL_PA2ON | ((_power + 11) & RH_RF69_PALEVEL_OUTPUTPOWER);
     }
     else
     {
-	// -18dBm to +13dBm
-	palevel = RH_RF69_PALEVEL_PA0ON | ((power + 18) & RH_RF69_PALEVEL_OUTPUTPOWER);
+	// +14dBm to +17dBm
+	// Need PA1+PA2
+	palevel = RH_RF69_PALEVEL_PA1ON | RH_RF69_PALEVEL_PA2ON | ((_power + 14) & RH_RF69_PALEVEL_OUTPUTPOWER);
     }
-
     spiWrite(RH_RF69_REG_11_PALEVEL, palevel);
 }
 
@@ -336,7 +402,7 @@ void RH_RF69::setTxPower(int8_t power)
 void RH_RF69::setModemRegisters(const ModemConfig* config)
 {
     spiBurstWrite(RH_RF69_REG_02_DATAMODUL,     &config->reg_02, 5);
-    spiWrite(RH_RF69_REG_19_RXBW,                config->reg_19);
+    spiBurstWrite(RH_RF69_REG_19_RXBW,          &config->reg_19, 2);
     spiWrite(RH_RF69_REG_37_PACKETCONFIG1,       config->reg_37);
 }
 
@@ -390,6 +456,8 @@ void RH_RF69::setEncryptionKey(uint8_t* key)
 
 bool RH_RF69::available()
 {
+    if (_mode == RHModeTx)
+	return false;
     setModeRx(); // Make sure we are receiving
     return _rxBufValid;
 }
@@ -442,4 +510,27 @@ bool RH_RF69::send(const uint8_t* data, uint8_t len)
 uint8_t RH_RF69::maxMessageLength()
 {
     return RH_RF69_MAX_MESSAGE_LEN;
+}
+
+bool RH_RF69::printRegister(uint8_t reg)
+{  
+#ifdef RH_HAVE_SERIAL
+    Serial.print(reg, HEX);
+    Serial.print(" ");
+    Serial.println(spiRead(reg), HEX);
+#endif
+    return true;
+}
+
+bool RH_RF69::printRegisters()
+{  
+    uint8_t i;
+    for (i = 0; i < 0x50; i++)
+	printRegister(i);
+    // Non-contiguous registers
+    printRegister(RH_RF69_REG_58_TESTLNA);
+    printRegister(RH_RF69_REG_6F_TESTDAGC);
+    printRegister(RH_RF69_REG_71_TESTAFC);
+    
+    return true;
 }

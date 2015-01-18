@@ -9,24 +9,29 @@
 // configuration.
 // Tested on Moteino with RFM69 http://lowpowerlab.com/moteino/
 // Tested on miniWireless with RFM69 www.anarduino.com/miniwireless
+// Tested on Teensy 3.1 with RF69 on PJRC breakout board
 
 #include <SPI.h>
 #include <RH_RF69.h>
 
 // Singleton instance of the radio driver
 RH_RF69 rf69;
+//RH_RF69 rf69(15, 16); // For RF69 on PJRC breakout board with Teensy 3.1
+//RH_RF69 rf69(4, 2); // For MoteinoMEGA https://lowpowerlab.com/shop/moteinomega
 
 void setup() 
 {
   Serial.begin(9600);
   if (!rf69.init())
     Serial.println("init failed");
-  // Defaults after init are 434.0MHz, modulation FSK_Rb2Fd5, +13dbM
+  // Defaults after init are 434.0MHz, modulation GFSK_Rb250Fd250, +13dbM
   // No encryption
   if (!rf69.setFrequency(433.0))
     Serial.println("setFrequency failed");
-   if (!rf69.setModemConfig(RH_RF69::GFSK_Rb250Fd250))
-    Serial.println("setModemConfig failed");
+
+  // If you are using a high power RF69, you *must* set a Tx power in the
+  // range 14 to 20 like this:
+  // rf69.setTxPower(14);
 
  // The encryption key has to be the same as the one in the client
   uint8_t key[] = { 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
@@ -52,7 +57,7 @@ void loop()
     uint8_t len = sizeof(buf);
     if (rf69.recv(buf, &len))
     {
-//      RF69::printBuffer("request: ", buf, len);
+//      RH_RF69::printBuffer("request: ", buf, len);
       Serial.print("got request: ");
       Serial.println((char*)buf);
 //      Serial.print("RSSI: ");

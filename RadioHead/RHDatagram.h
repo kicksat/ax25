@@ -1,7 +1,7 @@
 // RF22Datagram.h
 // Author: Mike McCauley (mikem@airspayce.com)
 // Copyright (C) 2011 Mike McCauley
-// $Id: RHDatagram.h,v 1.8 2014/05/08 08:53:26 mikem Exp mikem $
+// $Id: RHDatagram.h,v 1.12 2014/07/23 09:40:42 mikem Exp $
 
 #ifndef RHDatagram_h
 #define RHDatagram_h
@@ -125,9 +125,10 @@ public:
     /// \param[in] id The new ID header value
     void           setHeaderId(uint8_t id);
 
-    /// Sets the FLAGS header to be sent in all subsequent messages
-    /// \param[in] flags The new FLAGS header value
-    void           setHeaderFlags(uint8_t flags);
+    /// Sets and clears bits in the FLAGS header to be sent in all subsequent messages
+    /// \param[in] set bitmask of bits to be set
+    /// \param[in] clear bitmask of flags to clear
+    void           setHeaderFlags(uint8_t set, uint8_t clear = RH_FLAGS_NONE);
 
     /// Returns the TO header of the last received message
     /// \return The TO header of the most recently received message.

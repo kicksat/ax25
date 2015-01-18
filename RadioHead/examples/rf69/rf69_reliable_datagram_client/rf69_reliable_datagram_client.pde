@@ -5,6 +5,7 @@
 // It is designed to work with the other example rf69_reliable_datagram_server
 // Tested on Moteino with RFM69 http://lowpowerlab.com/moteino/
 // Tested on miniWireless with RFM69 www.anarduino.com/miniwireless
+// Tested on Teensy 3.1 with RF69 on PJRC breakout board
 
 #include <RHReliableDatagram.h>
 #include <RH_RF69.h>
@@ -15,6 +16,8 @@
 
 // Singleton instance of the radio driver
 RH_RF69 driver;
+//RH_RF69 driver(15, 16); // For RF69 on PJRC breakout board with Teensy 3.1
+//RH_RF69 rf69(4, 2); // For MoteinoMEGA https://lowpowerlab.com/shop/moteinomega
 
 // Class to manage message delivery and receipt, using the driver declared above
 RHReliableDatagram manager(driver, CLIENT_ADDRESS);
@@ -24,7 +27,11 @@ void setup()
   Serial.begin(9600);
   if (!manager.init())
     Serial.println("init failed");
-  // Defaults after init are 434.0MHz, modulation FSK_Rb2Fd5, +13dbM
+  // Defaults after init are 434.0MHz, modulation GFSK_Rb250Fd250, +13dbM
+
+  // If you are using a high power RF69, you *must* set a Tx power in the
+  // range 14 to 20 like this:
+  // driver.setTxPower(14);
 }
 
 uint8_t data[] = "Hello World!";

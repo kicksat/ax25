@@ -1,7 +1,7 @@
 // RHNRFSPIDriver.h
 // Author: Mike McCauley (mikem@airspayce.com)
 // Copyright (C) 2014 Mike McCauley
-// $Id: RHNRFSPIDriver.h,v 1.1 2014/04/23 06:00:59 mikem Exp mikem $
+// $Id: RHNRFSPIDriver.h,v 1.2 2014/08/12 00:54:52 mikem Exp $
 
 #ifndef RHNRFSPIDriver_h
 #define RHNRFSPIDriver_h
@@ -34,7 +34,7 @@ class RHNRFSPIDriver : public RHGenericDriver
 {
 public:
     /// Constructor
-    /// \param[in] slaveSelectPin The controler pin to use to select the desired SPI device. This pin will be driven LOW
+    /// \param[in] slaveSelectPin The controller pin to use to select the desired SPI device. This pin will be driven LOW
     /// during SPI communications with the SPI device that uis iused by this Driver.
     /// \param[in] spi Reference to the SPI interface to use. The default is to use a default built-in Hardware interface.
     RHNRFSPIDriver(uint8_t slaveSelectPin = SS, RHGenericSPI& spi = hardware_spi);

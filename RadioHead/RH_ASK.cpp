@@ -1,16 +1,10 @@
 // RH_ASK.cpp
 //
 // Copyright (C) 2014 Mike McCauley
-// $Id: RH_ASK.cpp,v 1.9 2014/05/08 22:56:52 mikem Exp mikem $
+// $Id: RH_ASK.cpp,v 1.14 2014/08/27 22:00:36 mikem Exp $
 
 #include <RH_ASK.h>
-
-// Arduino 1.0 includes crc16.h, so use it else can get clashes with other libraries
-#if (RH_PLATFORM == RH_PLATFORM_ARDUINO) && (ARDUINO >= 100) && !defined(__arm__)
- #include <util/crc16.h>
-#else
- #include <RHutil/crc16.h>
-#endif
+#include <RHCRC.h>
 
 #if (RH_PLATFORM == RH_PLATFORM_STM32) // Maple etc
 HardwareTimer timer(MAPLE_TIMER);
@@ -34,6 +28,9 @@ static uint8_t symbols[] =
     0x23, 0x25, 0x26, 0x29, 0x2a, 0x2c, 0x32, 0x34
 };
 
+// This is the value of the start symbol after 6-bit conversion and nybble swapping
+#define RH_ASK_START_SYMBOL 0xb38
+
 RH_ASK::RH_ASK(uint16_t speed, uint8_t rxPin, uint8_t txPin, uint8_t pttPin, bool pttInverted)
     :
     _speed(speed),
@@ -43,7 +40,8 @@ RH_ASK::RH_ASK(uint16_t speed, uint8_t rxPin, uint8_t txPin, uint8_t pttPin, boo
     _pttInverted(pttInverted)
 {
     // Initialise the first 8 nibbles of the tx buffer to be the standard
-    // preamble. We will append messages after that
+    // preamble. We will append messages after that. 0x38, 0x2c is the start symbol before
+    // 6-bit conversion to RH_ASK_START_SYMBOL
     uint8_t preamble[RH_ASK_PREAMBLE_LEN] = {0x2a, 0x2a, 0x2a, 0x2a, 0x2a, 0x2a, 0x38, 0x2c};
     memcpy(_txBuf, preamble, sizeof(preamble));
 }
@@ -69,12 +67,25 @@ bool RH_ASK::init()
     pinMode(_rxPin, INPUT);
     pinMode(_pttPin, OUTPUT);
 #endif
-    writeTx(LOW);
-    writePtt(LOW);
+
+    // Ready to go
+    setModeIdle();
+
     timerSetup();
 
     return true;
 }
+
+// Put these prescaler structs in PROGMEM, not on the stack
+#if (RH_PLATFORM == RH_PLATFORM_ARDUINO) || (RH_PLATFORM == RH_PLATFORM_GENERIC_AVR8)
+ #if defined(RH_ASK_ARDUINO_USE_TIMER2)
+ // Timer 2 has different prescalers
+ PROGMEM static const uint16_t prescalers[] = {0, 1, 8, 32, 64, 128, 256, 3333}; 
+ #else
+ PROGMEM static const uint16_t prescalers[] = {0, 1, 8, 64, 256, 1024, 3333}; 
+ #endif
+ #define NUM_PRESCALERS (sizeof(prescalers) / sizeof( uint16_t))
+#endif
 
 // Common function for setting timer ticks @ prescaler values for speed
 // Returns prescaler index into {0, 1, 8, 64, 256, 1024} array
@@ -84,14 +95,7 @@ uint8_t RH_ASK::timerCalc(uint16_t speed, uint16_t max_ticks, uint16_t *nticks)
 {
 #if (RH_PLATFORM == RH_PLATFORM_ARDUINO) || (RH_PLATFORM == RH_PLATFORM_GENERIC_AVR8)
     // Clock divider (prescaler) values - 0/3333: error flag
- #if defined(RH_ASK_ARDUINO_USE_TIMER2)
-    // Timer 2 has different prescalers
-    uint16_t prescalers[] = {0, 1, 8, 32, 64, 128, 256, 3333}; 
- #else
-    uint16_t prescalers[] = {0, 1, 8, 64, 256, 1024, 3333}; 
- #endif
-    #define NUM_PRESCALERS sizeof(prescalers) / sizeof( uint16_t)
-    uint8_t prescaler=0; // index into array & return bit value
+    uint8_t prescaler;     // index into array & return bit value
     unsigned long ulticks; // calculate by ntick overflow
 
     // Div-by-zero protection
@@ -103,23 +107,25 @@ uint8_t RH_ASK::timerCalc(uint16_t speed, uint16_t max_ticks, uint16_t *nticks)
     }
 
     // test increasing prescaler (divisor), decreasing ulticks until no overflow
+    // 1/Fraction of second needed to xmit one bit
+    unsigned long inv_bit_time = ((unsigned long)speed) * 8;
     for (prescaler=1; prescaler < NUM_PRESCALERS; prescaler += 1)
     {
 	// Integer arithmetic courtesy Jim Remington
 	// 1/Amount of time per CPU clock tick (in seconds)
-        unsigned long inv_clock_time = F_CPU / ((unsigned long)prescalers[prescaler]);
-        // 1/Fraction of second needed to xmit one bit
-        unsigned long inv_bit_time = ((unsigned long)speed) * 8;
+	uint16_t prescalerValue;
+	memcpy_P(&prescalerValue, &prescalers[prescaler], sizeof(uint16_t));
+        unsigned long inv_clock_time = F_CPU / ((unsigned long)prescalerValue);
         // number of prescaled ticks needed to handle bit time @ speed
-        ulticks = inv_clock_time/inv_bit_time;
+        ulticks = inv_clock_time / inv_bit_time;
 
         // Test if ulticks fits in nticks bitwidth (with 1-tick safety margin)
         if ((ulticks > 1) && (ulticks < max_ticks))
-        {
             break; // found prescaler
-        }
+
         // Won't fit, check with next prescaler value
     }
+
 
     // Check for error
     if ((prescaler == 6) || (ulticks < 2) || (ulticks > max_ticks))
@@ -163,8 +169,10 @@ void RH_ASK::timerSetup()
     uint16_t nticks; // number of prescaled ticks needed
     uint8_t prescaler; // Bit values for CS0[2:0]
 
- #ifdef __AVR_ATtiny85__
+ #ifdef RH_PLATFORM_ATTINY
     // figure out prescaler value and counter match value
+    // REVISIT: does not correctly handle 1MHz clock speeds, only works with 8MHz clocks
+    // At 1MHz clock, get 1/8 of the expected baud rate
     prescaler = timerCalc(_speed, (uint8_t)-1, &nticks);
     if (!prescaler)
         return; // fault
@@ -176,19 +184,27 @@ void RH_ASK::timerSetup()
     TCCR0B = 0;
     TCCR0B = prescaler; // set CS00, CS01, CS02 (other bits not needed)
 
+
     // Number of ticks to count before firing interrupt
     OCR0A = uint8_t(nticks);
 
     // Set mask to fire interrupt when OCF0A bit is set in TIFR0
+#ifdef TIMSK0
+    // ATtiny84
+    TIMSK0 |= _BV(OCIE0A);
+#else
+    // ATtiny85
     TIMSK |= _BV(OCIE0A);
+#endif
 
- #elif (RH_PLATFORM == RH_PLATFORM_ARDUINO) && defined(__arm__) && defined(CORE_TEENSY)
+
+ #elif defined(__arm__) && defined(CORE_TEENSY)
     // on Teensy 3.0 (32 bit ARM), use an interval timer
     IntervalTimer *t = new IntervalTimer();
     void TIMER1_COMPA_vect(void);
     t->begin(TIMER1_COMPA_vect, 125000 / _speed);
 
- #elif (RH_PLATFORM == RH_PLATFORM_ARDUINO) && defined(__arm__)
+ #elif defined(__arm__)
     // Arduino Due
     // Due has 9 timers in 3 blocks of 3.
     // We use timer 1 TC1_IRQn on TC0 channel 1, since timers 0, 2, 3, 4, 5 are used by the Servo library
@@ -256,7 +272,7 @@ void RH_ASK::timerSetup()
     TIMSK |= _BV(OCIE1A);
    #endif // TIMSK1
   #endif
- #endif // __AVR_ATtiny85__
+ #endif
 
 #elif (RH_PLATFORM == RH_PLATFORM_STM32) // Maple etc
     // Pause the timer while we're configuring it
@@ -319,9 +335,12 @@ void RH_ASK::setModeTx()
 	_mode = RHModeTx;
     }
 }
+
 // Call this often
 bool RH_ASK::available()
 {
+    if (_mode == RHModeTx)
+	return false;
     setModeRx();
     if (_rxBufFull)
     {
@@ -366,21 +385,21 @@ bool RH_ASK::send(const uint8_t* data, uint8_t len)
     waitPacketSent();
 
     // Encode the message length
-    crc = _crc_ccitt_update(crc, count);
+    crc = RHcrc_ccitt_update(crc, count);
     p[index++] = symbols[count >> 4];
     p[index++] = symbols[count & 0xf];
 
     // Encode the headers
-    crc = _crc_ccitt_update(crc, _txHeaderTo);
+    crc = RHcrc_ccitt_update(crc, _txHeaderTo);
     p[index++] = symbols[_txHeaderTo >> 4];
     p[index++] = symbols[_txHeaderTo & 0xf];
-    crc = _crc_ccitt_update(crc, _txHeaderFrom);
+    crc = RHcrc_ccitt_update(crc, _txHeaderFrom);
     p[index++] = symbols[_txHeaderFrom >> 4];
     p[index++] = symbols[_txHeaderFrom & 0xf];
-    crc = _crc_ccitt_update(crc, _txHeaderId);
+    crc = RHcrc_ccitt_update(crc, _txHeaderId);
     p[index++] = symbols[_txHeaderId >> 4];
     p[index++] = symbols[_txHeaderId & 0xf];
-    crc = _crc_ccitt_update(crc, _txHeaderFlags);
+    crc = RHcrc_ccitt_update(crc, _txHeaderFlags);
     p[index++] = symbols[_txHeaderFlags >> 4];
     p[index++] = symbols[_txHeaderFlags & 0xf];
 
@@ -388,7 +407,7 @@ bool RH_ASK::send(const uint8_t* data, uint8_t len)
     // 2 6-bit symbols, high nybble first, low nybble second
     for (i = 0; i < len; i++)
     {
-	crc = _crc_ccitt_update(crc, data[i]);
+	crc = RHcrc_ccitt_update(crc, data[i]);
 	p[index++] = symbols[data[i] >> 4];
 	p[index++] = symbols[data[i] & 0xf];
     }
@@ -407,6 +426,9 @@ bool RH_ASK::send(const uint8_t* data, uint8_t len)
 
     // Start the low level interrupt handler sending symbols
     setModeTx();
+
+// FIXME
+    thisASKDriver = this;
 
     return true;
 }
@@ -453,17 +475,15 @@ uint8_t RH_ASK::maxMessageLength()
 }
 
 #if (RH_PLATFORM == RH_PLATFORM_ARDUINO) 
- #if __AVR_ATtiny85__
+ #if defined(RH_PLATFORM_ATTINY)
   #define RH_ASK_TIMER_VECTOR TIM0_COMPA_vect
- #elif defined(__AVR_ATtiny84__) || defined(__AVR_ATtiny24__) || defined(__AVR_ATtiny44__) // Why can't Atmel make consistent?
-  #define RH_ASK_TIMER_VECTOR TIM1_COMPA_vect
  #else // Assume Arduino Uno (328p or similar)
   #if defined(RH_ASK_ARDUINO_USE_TIMER2)
    #define RH_ASK_TIMER_VECTOR TIMER2_COMPA_vect
   #else
    #define RH_ASK_TIMER_VECTOR TIMER1_COMPA_vect
   #endif
- #endif // __AVR_ATtiny85__
+ #endif 
 #elif (RH_ASK_PLATFORM == RH_ASK_PLATFORM_GENERIC_AVR8)
  #define __COMB(a,b,c) (a##b##c)
  #define _COMB(a,b,c) __COMB(a,b,c)
@@ -543,8 +563,8 @@ void RH_ASK::validateRxBuf()
     uint16_t crc = 0xffff;
     // The CRC covers the byte count, headers and user data
     for (uint8_t i = 0; i < _rxBufLen; i++)
-	crc = _crc_ccitt_update(crc, _rxBuf[i]);
-    if (crc != 0xf0b8)
+	crc = RHcrc_ccitt_update(crc, _rxBuf[i]);
+    if (crc != 0xf0b8) // CRC when buffer and expected CRC are CRC'd
     {
 	// Reject and drop the message
 	_rxBad++;
@@ -645,7 +665,7 @@ void RH_ASK::receiveTimer()
 	    }
 	}
 	// Not in a message, see if we have a start symbol
-	else if (_rxBits == 0xb38)
+	else if (_rxBits == RH_ASK_START_SYMBOL)
 	{
 	    // Have start symbol, start collecting message
 	    _rxActive = true;

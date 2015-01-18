@@ -1,7 +1,7 @@
 // RH_TCP.cpp
 //
 // Copyright (C) 2014 Mike McCauley
-// $Id: RH_TCP.cpp,v 1.2 2014/05/15 10:55:57 mikem Exp mikem $
+// $Id: RH_TCP.cpp,v 1.3 2014/05/30 19:30:54 mikem Exp $
 
 #include <RadioHead.h>
 
@@ -9,12 +9,15 @@
 #if (RH_PLATFORM == RH_PLATFORM_SIMULATOR) 
 
 #include <RH_TCP.h>
+#include <sys/types.h>
 #include <errno.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <sys/ioctl.h>
+#include <netdb.h>
+#include <string>
 
 RH_TCP::RH_TCP(const char* server)
     : _server(server),
@@ -23,32 +26,71 @@ RH_TCP::RH_TCP(const char* server)
       _socket(-1)
 {
 }
-
+    
 bool RH_TCP::init()
 {   
-    _socket = socket(AF_INET, SOCK_STREAM, 0);
-    if (_socket < 0)
+    if (!connectToServer())
+	return false;
+    return sendThisAddress(_thisAddress);
+}
+    
+bool RH_TCP::connectToServer()
+{
+    struct addrinfo hints;
+    struct addrinfo *result, *rp;
+    int sfd, s;
+    struct sockaddr_storage peer_addr;
+    socklen_t peer_addr_len;
+
+    memset(&hints, 0, sizeof(struct addrinfo));
+    hints.ai_family = AF_UNSPEC;    // Allow IPv4 or IPv6
+    hints.ai_socktype = SOCK_STREAM; // Stream socket
+    hints.ai_flags = AI_PASSIVE;    // For wildcard IP address 
+    hints.ai_protocol = 0;          // Any protocol 
+    hints.ai_canonname = NULL;
+    hints.ai_addr = NULL;
+    hints.ai_next = NULL;
+    
+    std::string server(_server);
+    std::string port("4000");
+    size_t indexOfSeparator = server.find_first_of(':');
+    if (indexOfSeparator != std::string::npos)
     {
-	fprintf(stderr,"RH_TCP::init failed to create socket: %s\n", strerror(errno));
+	port = server.substr(indexOfSeparator+1);
+	server.erase(indexOfSeparator);
+    }
+
+    s = getaddrinfo(server.c_str(), port.c_str(), &hints, &result);
+    if (s != 0) 
+    {
+	fprintf(stderr, "RH_TCP::connect getaddrinfo failed: %s\n", gai_strerror(s));
 	return false;
     }
 
-    // Connect to the etherServer
-    const char* server = "127.0.0.1"; // FIXME
-    short port = 4000; // Default
-    struct sockaddr_in servaddr;
-    servaddr.sin_family = AF_INET;
-    servaddr.sin_addr.s_addr = inet_addr(server);
-    servaddr.sin_port = htons(port);
-    
-    if (connect(_socket, (struct sockaddr *)&servaddr, sizeof(servaddr)) != 0)
+    // getaddrinfo() returns a list of address structures.
+    // Try each address until we successfully connect(2).
+    // If socket(2) (or connect(2)) fails, we (close the socket
+    // and) try the next address. */
+
+    for (rp = result; rp != NULL; rp = rp->ai_next) 
     {
-	// Failed to connect
-	fprintf(stderr,"RH_TCP::init failed to connect to %s:%d. %s\n", server, port, strerror(errno));
+	_socket = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
+	if (_socket == -1)
+	    continue;
+	
+	if (connect(_socket, rp->ai_addr, rp->ai_addrlen) == 0)
+	    break;                  /* Success */
+
 	close(_socket);
-	_socket = -1;
+    }
+
+    if (rp == NULL) 
+    {               /* No address succeeded */
+	fprintf(stderr, "RH_TCP::connect could not connect to %s\n", _server);
 	return false;
     }
+
+    freeaddrinfo(result);           /* No longer needed */
 
     // Now make the socket non-blocking
     int on = 1;
@@ -60,8 +102,7 @@ bool RH_TCP::init()
 	_socket = -1;
 	return false;
     }
-
-    return sendThisAddress(_thisAddress);
+    return true;
 }
 
 void RH_TCP::clearRxBuf()

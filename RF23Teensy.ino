@@ -1,7 +1,14 @@
 #include <SPI.h>
+#include <RHGenericDriver.h>
 #include <RH_RF22.h>
 
-RH_RF22 rf22;
+#define KICKSAT_RADIO_SS        10
+#define KICKSAT_RADIO_INTERUPT  0
+#define KICKSAT_RADIO_SDN       1
+#define TEENSY_LED              13
+
+RHHardwareSPI spi;
+RH_RF22 radio = RH_RF22(KICKSAT_RADIO_SS, KICKSAT_RADIO_INTERUPT, spi);
 
 RH_RF22::ModemConfig FSK1k2 = {
   0x2B, //reg_1c
@@ -23,7 +30,6 @@ RH_RF22::ModemConfig FSK1k2 = {
   0x22, //reg_71
   0x01  //reg_72
 };
-
 
 uint8_t data0[] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -54,36 +60,41 @@ uint8_t packet[] = {
   0b00101110, 0b10010001, 0b00010001, 0b00000011, 0b01111101, 0b11000000, 0b01111111
 };
 
-void setup() 
+void radioOff()
 {
-  rf22.init();
+  radio.sleep();
 }
 
+void radioOn()
+{
+  radio.setModeIdle();
+  radio.setFrequency(437.505);
+  radio.setModemRegisters(&FSK1k2);
+  radio.setTxPower(RH_RF22_RF23BP_TXPOW_30DBM);
+  delay(10);
+}
+
+void setup() 
+{ 
+  Serial.begin(9600);
+  pinMode(TEENSY_LED, OUTPUT);
+  pinMode(KICKSAT_RADIO_SDN, OUTPUT);
+  digitalWrite(KICKSAT_RADIO_SDN, LOW);
+  Serial.print(radio.init());
+  delay(3000);
+}
+
+unsigned int n = 1;
 void loop()
 {
-  rf22.setFrequency(437.505);
-  rf22.setModemRegisters(&FSK1k2);
-  rf22.setTxPower(RH_RF22_RF23BP_TXPOW_28DBM);
-  rf22.send(data0, 32);
-  rf22.waitPacketSent();
-  rf22.setModeIdle();
-  delay(500);
-  
-  rf22.setFrequency(437.505);
-  rf22.setModemRegisters(&FSK1k2);
-  rf22.setTxPower(RH_RF22_RF23BP_TXPOW_28DBM);
-  rf22.send(data1, 32);
-  rf22.waitPacketSent();
-  rf22.setModeIdle();
-  delay(500);
-
-  rf22.setFrequency(437.505);
-  rf22.setModemRegisters(&FSK1k2);
-  rf22.setTxPower(RH_RF22_RF23BP_TXPOW_28DBM);
-  rf22.send(packet, 95);
-  rf22.waitPacketSent();
-  rf22.setModeIdle();
-  
-  delay(3000);
+  radioOn();
+  Serial.print(radio.statusRead());
+  Serial.print("\t");
+  Serial.print(radio.send(packet, 95));
+  Serial.print("\t Packet ");
+  Serial.println(n++);
+  radio.waitPacketSent();
+  radioOff();
+  delay(5000);
 }
 
