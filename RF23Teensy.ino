@@ -3,8 +3,8 @@
 #include <RH_RF22.h>
 
 #define KICKSAT_RADIO_SS        10
-#define KICKSAT_RADIO_INTERUPT  0
-#define KICKSAT_RADIO_SDN       1
+#define KICKSAT_RADIO_INTERUPT  2
+#define KICKSAT_RADIO_SDN       9
 #define TEENSY_LED              13
 
 RHHardwareSPI spi;
