@@ -49,23 +49,32 @@ void setup()
   Serial.begin(9600);
   pinMode(TEENSY_LED, OUTPUT);
   pinMode(KICKSAT_RADIO_SDN, OUTPUT);
+
+  //Need a delay before turning on radio
+  //so that power supply can stabilize
+  digitalWrite(KICKSAT_RADIO_SDN, HIGH);
+  delay(2000);
   digitalWrite(KICKSAT_RADIO_SDN, LOW);
+  delay(500);
+
   if(!radio.init()) {
     Serial.println("We have a problem...");
+    Serial.println(radio.statusRead(), HEX);
   }
   else {
     Serial.println("Good to go...");
+    digitalWrite(TEENSY_LED, HIGH);
   }
   radio.setFrequency(437.505);
   radio.setModemRegisters(&FSK1k2);
-  radio.setTxPower(RH_RF22_RF23BP_TXPOW_29DBM);
+  radio.setTxPower(RH_RF22_RF23BP_TXPOW_28DBM);
 }
 
 unsigned int n = 1;
 void loop()
 {
   Serial.print("Status byte: 0x");
-  Serial.print(radio.statusRead(),HEX);
+  Serial.print(radio.statusRead(), HEX);
   Serial.print("\t Packet ");
   radio.send(packet, 95);
   radio.waitPacketSent();
