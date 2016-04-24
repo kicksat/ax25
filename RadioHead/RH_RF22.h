@@ -1,7 +1,7 @@
 // RH_RF22.h
 // Author: Mike McCauley (mikem@airspayce.com)
 // Copyright (C) 2011 Mike McCauley
-// $Id: RH_RF22.h,v 1.26 2014/09/17 22:41:47 mikem Exp $
+// $Id: RH_RF22.h,v 1.29 2016/04/04 01:40:12 mikem Exp mikem $
 //
 
 #ifndef RH_RF22_h
@@ -25,7 +25,7 @@
 // Can be pre-defined to a smaller size (to save SRAM) prior to including this header
 #ifndef RH_RF22_MAX_MESSAGE_LEN
 #define RH_RF22_MAX_MESSAGE_LEN 255
-//#define RH_RF22_MAX_MESSAGE_LEN 50
+//define RH_RF22_MAX_MESSAGE_LEN 50
 #endif
 
 // Max number of octets the RF22 Rx and Tx FIFOs can hold
@@ -460,7 +460,7 @@
 ///    - Device Type Code = 0x08 (RX/TRX)
 ///    - Version Code = 0x06
 /// Works on Duo. Works with Sparkfun RFM22 Wireless shields. Works with RFM22 modules from http://www.hoperfusa.com/
-/// Works with Arduino 1.0 to at least 1.0.5. Works on Maple, Flymaple, Uno32.
+/// Works with Arduino 1.0 to at least 1.0.5. Works on Maple, Flymaple, Uno32 (with ChipKIT Core with Arduino IDE).
 ///
 /// \par Packet Format
 ///
@@ -560,6 +560,26 @@
 ///                           /--GPIO1 (GPIO1 out to control receiver antenna RX_ANT)
 ///                           \--RX_ANT (RX antenna control in) RFM22B only
 /// \endcode
+/// For an Arduino Due (the SPI pins do not come out on the Digital pins as for normal Arduino, but only
+/// appear on the SPI header)
+/// \code
+///                 Due      RFM-22B
+///                 GND----------GND-\ (ground in)
+///                              SDN-/ (shutdown in)
+///                 5V-----------VCC   (5V in)
+/// interrupt 0 pin D2-----------NIRQ  (interrupt request out)
+///          SS pin D10----------NSEL  (chip select in)
+///       SCK SPI pin 3----------SCK   (SPI clock in)
+///      MOSI SPI pin 4----------SDI   (SPI Data in)
+///      MISO SPI pin 1----------SDO   (SPI data out)
+///                           /--GPIO0 (GPIO0 out to control transmitter antenna TX_ANT)
+///                           \--TX_ANT (TX antenna control in) RFM22B only
+///                           /--GPIO1 (GPIO1 out to control receiver antenna RX_ANT)
+///                           \--RX_ANT (RX antenna control in) RFM22B only
+/// \endcode
+/// and use the default constructor:
+/// RH_RF22 driver;
+
 /// For connecting an Arduino to an RFM23BP module. Note that the antenna control pins are reversed 
 /// compared to the RF22.
 /// \code
@@ -584,6 +604,13 @@
 /// Arduino (D10 for Diecimila, Uno etc and D53 for Mega)
 /// or the interrupt request to other than pin D2 (Caution, different processors have different constraints as to the 
 /// pins available for interrupts).
+///
+/// If you have an Arduino Zero, you should note that you cannot use Pin 2 for the interrupt line 
+/// (Pin 2 is for the NMI only), instead you can use any other pin (we use Pin 3) and initialise RH_RF69 like this:
+/// \code
+/// // Slave Select is pin 10, interrupt is Pin 3
+/// RH_RF22 driver(10, 3);
+/// \endcode
 ///
 /// It is possible to have 2 radios connected to one Arduino, provided each radio has its own 
 /// SS and interrupt line (SCK, SDI and SDO are common to both radios)
@@ -900,7 +927,7 @@ public:
     typedef enum
     {
 	CRC_CCITT = 0,       ///< CCITT
-	CRC_16_IBM = 1,      ///< CRC-16 (IBM) The default used by RH_RF22 library
+	CRC_16_IBM = 1,      ///< CRC-16 (IBM) The default used by RH_RF22 driver
 	CRC_IEC_16 = 2,      ///< IEC-16
 	CRC_Biacheva = 3     ///< Biacheva
     } CRCPolynomial;
@@ -1221,10 +1248,16 @@ protected:
 
     /// Array of instances connected to interrupts 0 and 1
     static RH_RF22*     _deviceForInterrupt[];
+
     /// Index of next interrupt number to use in _deviceForInterrupt
     static uint8_t      _interruptCount;
+
     /// The configured interrupt pin connected to this instance
     uint8_t             _interruptPin;
+
+    /// The index into _deviceForInterrupt[] for this device (if an interrupt is already allocated)
+    /// else 0xff
+    uint8_t             _myInterruptIndex;
 
     /// The radio mode to use when mode is idle
     uint8_t             _idleMode; 

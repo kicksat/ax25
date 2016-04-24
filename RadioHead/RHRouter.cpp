@@ -9,7 +9,7 @@
 //
 // Author: Mike McCauley (mikem@airspayce.com)
 // Copyright (C) 2011 Mike McCauley
-// $Id: RHRouter.cpp,v 1.6 2014/08/10 20:55:17 mikem Exp $
+// $Id: RHRouter.cpp,v 1.7 2015/08/13 02:45:47 mikem Exp $
 
 #include <RHRouter.h>
 
@@ -291,10 +291,14 @@ bool RHRouter::recvfromAck(uint8_t* buf, uint8_t* len, uint8_t* source, uint8_t*
 bool RHRouter::recvfromAckTimeout(uint8_t* buf, uint8_t* len, uint16_t timeout, uint8_t* source, uint8_t* dest, uint8_t* id, uint8_t* flags)
 {  
     unsigned long starttime = millis();
-    while ((millis() - starttime) < timeout)
+    int32_t timeLeft;
+    while ((timeLeft = timeout - (millis() - starttime)) > 0)
     {
-	if (recvfromAck(buf, len, source, dest, id, flags))
-	    return true;
+	if (waitAvailableTimeout(timeLeft))
+	{
+	    if (recvfromAck(buf, len, source, dest, id, flags))
+		return true;
+	}
 	YIELD;
     }
     return false;

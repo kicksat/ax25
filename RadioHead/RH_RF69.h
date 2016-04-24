@@ -1,7 +1,7 @@
 // RH_RF69.h
 // Author: Mike McCauley (mikem@airspayce.com)
 // Copyright (C) 2014 Mike McCauley
-// $Id: RH_RF69.h,v 1.27 2014/09/17 22:41:47 mikem Exp $
+// $Id: RH_RF69.h,v 1.31 2016/04/04 01:40:12 mikem Exp mikem $
 //
 ///
 
@@ -299,6 +299,8 @@
 /// - RFM69 modules from http://www.hoperfusa.com such as http://www.hoperfusa.com/details.jsp?pid=145
 /// - Anarduino MiniWireless -CW and -HW boards http://www.anarduino.com/miniwireless/ including
 ///  the marvellous high powered MinWireless-HW (with 20dBm output for excellent range)
+/// - the excellent Rocket Scream Mini Ultra Pro with the RFM69HCW 
+///   http://www.rocketscream.com/blog/product/mini-ultra-pro-with-radio/
 ///
 /// \par Overview
 ///
@@ -367,7 +369,7 @@
 /// programming connection and an antenna to make it work.
 ///
 /// If you have a bare RFM69W that you want to connect to an Arduino, you
-/// might use these connections (untested): CAUTION: you must use a 3.3V type
+/// might use these connections: CAUTION: you must use a 3.3V type
 /// Arduino, otherwise you will also need voltage level shifters between the
 /// Arduino and the RFM69.  CAUTION, you must also ensure you connect an
 /// antenna
@@ -381,6 +383,18 @@
 ///         SCK pin D13----------SCK   (SPI clock in)
 ///        MOSI pin D11----------MOSI  (SPI Data in)
 ///        MISO pin D12----------MISO  (SPI Data out)
+/// \endcode
+///
+/// For Arduino Due, use these connections:
+/// \code
+///                 Arduino      RFM69W
+///                 GND----------GND   (ground in)
+///                 3V3----------3.3V  (3.3V in)
+/// interrupt 0 pin D2-----------DIO0  (interrupt request out)
+///          SS pin D10----------NSS   (chip select in)
+///       SCK SPI pin 3----------SCK   (SPI clock in)
+///      MOSI SPI pin 4----------MOSI  (SPI Data in)
+///      MISO SPI pin 1----------MISO  (SPI Data out)
 /// \endcode
 ///
 /// With these connections, you can then use the default constructor RH_RF69().
@@ -406,6 +420,61 @@
 /// \endcode
 /// Make sure you have the MoteinoMEGA core installed in your Arduino hardware folder as described in the
 /// documentation for the MoteinoMEGA.
+///
+/// If you have an Arduino M0 Pro from arduino.org, 
+/// you should note that you cannot use Pin 2 for the interrupt line 
+/// (Pin 2 is for the NMI only). The same comments apply to Pin 4 on Arduino Zero from arduino.cc.
+/// Instead you can use any other pin (we use Pin 3) and initialise RH_RF69 like this:
+/// \code
+/// // Slave Select is pin 10, interrupt is Pin 3
+/// RH_RF69 driver(10, 3);
+/// \endcode
+///
+/// If you have a Rocket Scream Mini Ultra Pro with the RFM69HCW
+/// - Ensure you have Arduino SAMD board support 1.6.5 or later in Arduino IDE 1.6.8 or later.
+/// - The radio SS is hardwired to pin D5 and the DIO0 interrupt to pin D2, 
+/// so you need to initialise the radio like this:
+/// \code
+/// RH_RF69 driver(5, 2);
+/// \endcode
+/// - The name of the serial port on that board is 'SerialUSB', not 'Serial', so this may be helpful at the top of our
+///   sample sketches:
+/// \code
+/// #define Serial SerialUSB
+/// \endcode
+/// - You also need this in setup before radio initialisation  
+/// \code
+/// // Ensure serial flash is not interfering with radio communication on SPI bus
+///  pinMode(4, OUTPUT);
+///  digitalWrite(4, HIGH);
+/// \endcode
+/// - and if you have a 915MHz part, you need this after driver/manager intitalisation:
+/// \code
+/// rf69.setFrequency(915.0);
+/// rf69.setTxPower(20);
+/// \endcode
+/// which adds up to modifying sample sketches something like:
+/// \code
+/// #include <SPI.h>
+/// #include <RH_RF69.h>
+/// RH_RF69 rf69(5, 2); // Rocket Scream Mini Ultra Pro with the RFM69HCW
+/// #define Serial SerialUSB
+/// 
+/// void setup() 
+/// {
+///   // Ensure serial flash is not interfering with radio communication on SPI bus
+///   pinMode(4, OUTPUT);
+///   digitalWrite(4, HIGH);
+/// 
+///   Serial.begin(9600);
+///   while (!Serial) ; // Wait for serial port to be available
+///   if (!rf69.init())
+///     Serial.println("init failed");
+///   rf69.setFrequency(915.0);
+///   rf69.setTxPower(20);
+/// }
+/// ...
+/// \endcode
 ///
 /// It is possible to have 2 or more radios connected to one Arduino, provided
 /// each radio has its own SS and interrupt line (SCK, SDI and SDO are common
@@ -617,6 +686,8 @@ public:
     /// Caution: You must specify an interrupt capable pin.
     /// On many Arduino boards, there are limitations as to which pins may be used as interrupts.
     /// On Leonardo pins 0, 1, 2 or 3. On Mega2560 pins 2, 3, 18, 19, 20, 21. On Due and Teensy, any digital pin.
+    /// On Arduino Zero from arduino.cc, any digital pin other than 4.
+    /// On Arduino M0 Pro from arduino.org, any digital pin other than 2.
     /// On other Arduinos pins 2 or 3. 
     /// See http://arduino.cc/en/Reference/attachInterrupt for more details.
     /// On Chipkit Uno32, pins 38, 2, 7, 8, 35.
@@ -811,6 +882,10 @@ protected:
 
     /// The configured interrupt pin connected to this instance
     uint8_t             _interruptPin;
+
+    /// The index into _deviceForInterrupt[] for this device (if an interrupt is already allocated)
+    /// else 0xff
+    uint8_t             _myInterruptIndex;
 
     /// The radio OP mode to use when mode is RHModeIdle
     uint8_t             _idleMode; 

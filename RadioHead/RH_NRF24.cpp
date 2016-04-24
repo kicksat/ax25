@@ -1,7 +1,7 @@
 // NRF24.cpp
 //
 // Copyright (C) 2012 Mike McCauley
-// $Id: RH_NRF24.cpp,v 1.18 2014/09/18 00:25:01 mikem Exp mikem $
+// $Id: RH_NRF24.cpp,v 1.22 2016/04/04 01:40:12 mikem Exp mikem $
 
 #include <RH_NRF24.h>
 
@@ -153,7 +153,9 @@ bool RH_NRF24::sleep()
 	spiWriteRegister(RH_NRF24_REG_00_CONFIG, 0); // Power Down mode
 	digitalWrite(_chipEnablePin, LOW);
 	_mode = RHModeSleep;
+	return true;
     }
+    return false; // Already there?
 }
 
 void RH_NRF24::setModeRx()
@@ -170,8 +172,11 @@ void RH_NRF24::setModeTx()
 {
     if (_mode != RHModeTx)
     {
-	// Its the pulse high that puts us into TX mode
+	// Its the CE rising edge that puts us into TX mode
+	// CE staying high makes us go to standby-II when the packet is sent
 	digitalWrite(_chipEnablePin, LOW);
+	// Ensure DS is not set
+	spiWriteRegister(RH_NRF24_REG_07_STATUS, RH_NRF24_TX_DS | RH_NRF24_MAX_RT);
 	spiWriteRegister(RH_NRF24_REG_00_CONFIG, _configuration | RH_NRF24_PWR_UP);
 	digitalWrite(_chipEnablePin, HIGH);
 	_mode = RHModeTx;
@@ -188,8 +193,8 @@ bool RH_NRF24::send(const uint8_t* data, uint8_t len)
     _buf[2] = _txHeaderId;
     _buf[3] = _txHeaderFlags;
     memcpy(_buf+RH_NRF24_HEADER_LEN, data, len);
-    setModeTx();
     spiBurstWrite(RH_NRF24_COMMAND_W_TX_PAYLOAD_NOACK, _buf, len + RH_NRF24_HEADER_LEN);
+    setModeTx();
     // Radio will return to Standby II mode after transmission is complete
     _txGood++;
     return true;
@@ -209,10 +214,10 @@ bool RH_NRF24::waitPacketSent()
 	YIELD;
 
     // Must clear RH_NRF24_MAX_RT if it is set, else no further comm
-    spiWriteRegister(RH_NRF24_REG_07_STATUS, RH_NRF24_TX_DS | RH_NRF24_MAX_RT);
     if (status & RH_NRF24_MAX_RT)
 	flushTx();
     setModeIdle();
+    spiWriteRegister(RH_NRF24_REG_07_STATUS, RH_NRF24_TX_DS | RH_NRF24_MAX_RT);
     // Return true if data sent, false if MAX_RT
     return status & RH_NRF24_TX_DS;
 }

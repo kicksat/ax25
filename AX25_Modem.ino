@@ -78,8 +78,8 @@ int Index = 0;
 unsigned int FCS = 0;
 
 #define RADIO_SS       10
-#define RADIO_INT       0
-#define RADIO_SDN       1
+#define RADIO_INT       2
+#define RADIO_SDN       9
 #define TEENSY_LED     13
 
 RHHardwareSPI spi;

@@ -1,7 +1,7 @@
-// RH_RF22.cpp
+// RH_RF95.cpp
 //
 // Copyright (C) 2011 Mike McCauley
-// $Id: RH_RF95.cpp,v 1.5 2014/09/17 22:41:47 mikem Exp $
+// $Id: RH_RF95.cpp,v 1.11 2016/04/04 01:40:12 mikem Exp mikem $
 
 #include <RH_RF95.h>
 
@@ -29,6 +29,7 @@ RH_RF95::RH_RF95(uint8_t slaveSelectPin, uint8_t interruptPin, RHGenericSPI& spi
     _rxBufValid(0)
 {
     _interruptPin = interruptPin;
+    _myInterruptIndex = 0xff; // Not allocated yet
 }
 
 bool RH_RF95::init()
@@ -40,6 +41,9 @@ bool RH_RF95::init()
     int interruptNumber = digitalPinToInterrupt(_interruptPin);
     if (interruptNumber == NOT_AN_INTERRUPT)
 	return false;
+#ifdef RH_ATTACHINTERRUPT_TAKES_PIN_NUMBER
+    interruptNumber = _interruptPin;
+#endif
 
     // No way to check the device type :-(
     
@@ -64,17 +68,23 @@ bool RH_RF95::init()
     // ON some devices, notably most Arduinos, the interrupt pin passed in is actuallt the 
     // interrupt number. You have to figure out the interruptnumber-to-interruptpin mapping
     // yourself based on knwledge of what Arduino board you are running on.
-    _deviceForInterrupt[_interruptCount] = this;
-    if (_interruptCount == 0)
+    if (_myInterruptIndex == 0xff)
+    {
+	// First run, no interrupt allocated yet
+	if (_interruptCount <= RH_RF95_NUM_INTERRUPTS)
+	    _myInterruptIndex = _interruptCount++;
+	else
+	    return false; // Too many devices, not enough interrupt vectors
+    }
+    _deviceForInterrupt[_myInterruptIndex] = this;
+    if (_myInterruptIndex == 0)
 	attachInterrupt(interruptNumber, isr0, RISING);
-    else if (_interruptCount == 1)
+    else if (_myInterruptIndex == 1)
 	attachInterrupt(interruptNumber, isr1, RISING);
-    else if (_interruptCount == 2)
+    else if (_myInterruptIndex == 2)
 	attachInterrupt(interruptNumber, isr2, RISING);
     else
 	return false; // Too many devices, not enough interrupt vectors
-    _interruptCount++;
-
 
     // Set up FIFO
     // We configure so that we can use the entire 256 byte FIFO for either receive
@@ -243,6 +253,7 @@ bool RH_RF95::send(const uint8_t* data, uint8_t len)
 
 bool RH_RF95::printRegisters()
 {
+#ifdef RH_HAVE_SERIAL
     uint8_t registers[] = { 0x01, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13, 0x014, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27};
 
     uint8_t i;
@@ -252,6 +263,7 @@ bool RH_RF95::printRegisters()
 	Serial.print(": ");
 	Serial.println(spiRead(registers[i]), HEX);
     }
+#endif
     return true;
 }
 
@@ -310,33 +322,46 @@ void RH_RF95::setModeTx()
     }
 }
 
-void RH_RF95::setTxPower(int8_t power)
+void RH_RF95::setTxPower(int8_t power, bool useRFO)
 {
-    if (power > 23)
-	power = 23;
-    if (power < 5)
-	power = 5;
-
-    // For RH_RF95_PA_DAC_ENABLE, manual says '+20dBm on PA_BOOST when OutputPower=0xf'
-    // RH_RF95_PA_DAC_ENABLE actually adds about 3dBm to all power levels. We will us it
-    // for 21, 22 and 23dBm
-    if (power > 20)
+    // Sigh, different behaviours depending on whther the module use PA_BOOST or the RFO pin
+    // for the transmitter output
+    if (useRFO)
     {
-	spiWrite(RH_RF95_REG_4D_PA_DAC, RH_RF95_PA_DAC_ENABLE);
-	power -= 3;
+	if (power > 14)
+	    power = 14;
+	if (power < -1)
+	    power = -1;
+	spiWrite(RH_RF95_REG_09_PA_CONFIG, RH_RF95_MAX_POWER | (power + 1));
     }
     else
     {
-	spiWrite(RH_RF95_REG_4D_PA_DAC, RH_RF95_PA_DAC_DISABLE);
-    }
+	if (power > 23)
+	    power = 23;
+	if (power < 5)
+	    power = 5;
 
-    // RFM95/96/97/98 does not have RFO pins connected to anything. Only PA_BOOST
-    // pin is connected, so must use PA_BOOST
-    // Pout = 2 + OutputPower.
-    // The documentation is pretty confusing on this topic: PaSelect says the max power is 20dBm,
-    // but OutputPower claims it would be 17dBm.
-    // My measurements show 20dBm is correct
-    spiWrite(RH_RF95_REG_09_PA_CONFIG, RH_RF95_PA_SELECT | (power-5));
+	// For RH_RF95_PA_DAC_ENABLE, manual says '+20dBm on PA_BOOST when OutputPower=0xf'
+	// RH_RF95_PA_DAC_ENABLE actually adds about 3dBm to all power levels. We will us it
+	// for 21, 22 and 23dBm
+	if (power > 20)
+	{
+	    spiWrite(RH_RF95_REG_4D_PA_DAC, RH_RF95_PA_DAC_ENABLE);
+	    power -= 3;
+	}
+	else
+	{
+	    spiWrite(RH_RF95_REG_4D_PA_DAC, RH_RF95_PA_DAC_DISABLE);
+	}
+
+	// RFM95/96/97/98 does not have RFO pins connected to anything. Only PA_BOOST
+	// pin is connected, so must use PA_BOOST
+	// Pout = 2 + OutputPower.
+	// The documentation is pretty confusing on this topic: PaSelect says the max power is 20dBm,
+	// but OutputPower claims it would be 17dBm.
+	// My measurements show 20dBm is correct
+	spiWrite(RH_RF95_REG_09_PA_CONFIG, RH_RF95_PA_SELECT | (power-5));
+    }
 }
 
 // Sets registers from a canned modem configuration structure

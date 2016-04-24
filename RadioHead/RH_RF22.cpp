@@ -1,7 +1,7 @@
 // RH_RF22.cpp
 //
 // Copyright (C) 2011 Mike McCauley
-// $Id: RH_RF22.cpp,v 1.22 2014/09/17 22:41:47 mikem Exp $
+// $Id: RH_RF22.cpp,v 1.26 2016/04/04 01:40:12 mikem Exp mikem $
 
 #include <RH_RF22.h>
 
@@ -63,6 +63,7 @@ RH_RF22::RH_RF22(uint8_t slaveSelectPin, uint8_t interruptPin, RHGenericSPI& spi
     _interruptPin = interruptPin;
     _idleMode = RH_RF22_XTON; // Default idle state is READY mode
     _polynomial = CRC_16_IBM; // Historical
+    _myInterruptIndex = 0xff; // Not allocated yet
 }
 
 void RH_RF22::setIdleMode(uint8_t idleMode)
@@ -73,18 +74,15 @@ void RH_RF22::setIdleMode(uint8_t idleMode)
 bool RH_RF22::init()
 {
     if (!RHSPIDriver::init())
-    {
-        //Serial.print("SPI Init Failure");
-        return false;
-    }
+	return false;
 
     // Determine the interrupt number that corresponds to the interruptPin
     int interruptNumber = digitalPinToInterrupt(_interruptPin);
     if (interruptNumber == NOT_AN_INTERRUPT)
-    {
-        //Serial.print("Interrupt Pin Failure");
-        return false;
-    }
+	return false;
+#ifdef RH_ATTACHINTERRUPT_TAKES_PIN_NUMBER
+    interruptNumber = _interruptPin;
+#endif
 
     // Software reset the device
     reset();
@@ -95,8 +93,7 @@ bool RH_RF22::init()
     if (   _deviceType != RH_RF22_DEVICE_TYPE_RX_TRX
         && _deviceType != RH_RF22_DEVICE_TYPE_TX)
     {
-        //Serial.print("Device Connection Failure");
-	   return false;
+	return false;
     }
 
     // Add by Adrien van den Bossche <vandenbo@univ-tlse2.fr> for Teensy
@@ -115,28 +112,29 @@ bool RH_RF22::init()
     // On some devices, notably most Arduinos, the interrupt pin passed in is actually the 
     // interrupt number. You have to figure out the interruptnumber-to-interruptpin mapping
     // yourself based on knowledge of what Arduino board you are running on.
-    _deviceForInterrupt[_interruptCount] = this;
-    if (_interruptCount == 0)
+    if (_myInterruptIndex == 0xff)
+    {
+	// First run, no interrupt allocated yet
+	if (_interruptCount <= RH_RF22_NUM_INTERRUPTS)
+	    _myInterruptIndex = _interruptCount++;
+	else
+	    return false; // Too many devices, not enough interrupt vectors
+    }
+    _deviceForInterrupt[_myInterruptIndex] = this;
+    if (_myInterruptIndex == 0)
 	attachInterrupt(interruptNumber, isr0, FALLING);
-    else if (_interruptCount == 1)
+    else if (_myInterruptIndex == 1)
 	attachInterrupt(interruptNumber, isr1, FALLING);
-    else if (_interruptCount == 2)
+    else if (_myInterruptIndex == 2)
 	attachInterrupt(interruptNumber, isr2, FALLING);
     else
-    {
-        //Serial.print("Interrupt Init Failure \t Interrupt Count = ");
-        //Serial.println(_interruptCount);
-        return false; // Too many devices, not enough interrupt vectors
-    }
-    //Serial.print("Interrupt Count = ");
-    //Serial.println(_interruptCount);
-    _interruptCount++;
+	return false; // Too many devices, not enough interrupt vectors
 
     setModeIdle();
 
     clearTxBuf();
     clearRxBuf();
-  
+
     // Most of these are the POR default
     spiWrite(RH_RF22_REG_7D_TX_FIFO_CONTROL2, RH_RF22_TXFFAEM_THRESHOLD);
     spiWrite(RH_RF22_REG_7E_RX_FIFO_CONTROL,  RH_RF22_RXFFAFULL_THRESHOLD);
@@ -663,6 +661,7 @@ void RH_RF22::resetRxFifo()
 {
     spiWrite(RH_RF22_REG_08_OPERATING_MODE2, RH_RF22_FFCLRRX);
     spiWrite(RH_RF22_REG_08_OPERATING_MODE2, 0);
+    _rxBufValid = false;
 }
 
 // CLear the TX FIFO

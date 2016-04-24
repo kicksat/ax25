@@ -1,7 +1,7 @@
 // RH_RF24.h
 // Author: Mike McCauley (mikem@airspayce.com)
 // Copyright (C) 2014 Mike McCauley
-// $Id: RH_RF24.h,v 1.10 2014/09/17 22:41:47 mikem Exp $
+// $Id: RH_RF24.h,v 1.14 2015/12/11 01:10:24 mikem Exp $
 //
 // Supports RF24/RF26 and RFM24/RFM26 modules in FIFO mode
 // also Si4464/63/62/61/60-A1
@@ -572,6 +572,13 @@
 /// Note: the GPIO0-TX_ANT and GPIO1-RX_ANT connections are not required for the 11dBm RFM24W, 
 /// which has no antenna switch.
 ///
+/// If you have an Arduino Zero, you should note that you cannot use Pin 2 for the interrupt line 
+/// (Pin 2 is for the NMI only), instead you can use any other pin (we use Pin 3) and initialise RH_RF69 like this:
+/// \code
+/// // Slave Select is pin 10, interrupt is Pin 3
+/// RH_RF24 driver(10, 3);
+/// \endcode
+///
 /// \par Customising
 ///
 /// The library will work out of the box with the provided examples, over the full frequency range and with
@@ -772,6 +779,13 @@ public:
 	CRC_IEEE_802_3,
 	CRC_Castagnoli,
     } CRCPolynomial;
+
+    /// \brief Defines the commands we can interrogate in printRegisters
+    typedef struct
+    {
+	uint8_t      cmd;       ///< The command number
+	uint8_t      replyLen;  ///< Number of bytes in the reply stream (after the CTS)
+    }   CommandInfo;
 
     /// Constructor. You can have multiple instances, but each instance must have its own
     /// interrupt and slave select pin. After constructing, you must call init() to initialise the interface
@@ -1044,6 +1058,10 @@ private:
 
     /// The configured interrupt pin connected to this instance
     uint8_t             _interruptPin;
+
+    /// The index into _deviceForInterrupt[] for this device (if an interrupt is already allocated)
+    /// else 0xff
+    uint8_t             _myInterruptIndex;
 
     /// The configured pin connected to the SDN pin of the radio
     uint8_t             _sdnPin;

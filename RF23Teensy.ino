@@ -1,5 +1,4 @@
 #include <SPI.h>
-#include <RHGenericDriver.h>
 #include <RH_RF22.h>
 
 #define KICKSAT_RADIO_SS        10
@@ -7,8 +6,7 @@
 #define KICKSAT_RADIO_SDN       9
 #define TEENSY_LED              13
 
-RHHardwareSPI spi;
-RH_RF22 radio = RH_RF22(KICKSAT_RADIO_SS, KICKSAT_RADIO_INTERUPT, spi);
+RH_RF22 radio;
 
 RH_RF22::ModemConfig FSK1k2 = {
   0x2B, //reg_1c
@@ -30,20 +28,6 @@ RH_RF22::ModemConfig FSK1k2 = {
   0x22, //reg_71
   0x01  //reg_72
 };
-
-uint8_t data0[] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-                  
-uint8_t data1[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-                   0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-                   0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-                   0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-                   0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-                   0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-                   0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-                   0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
                    
 uint8_t packet[] = {
   0b01111111, 0b01111111, 0b01111111, 0b01111111, 0b01111111, 0b01111111, 0b01111111, 0b01111111,
@@ -60,41 +44,32 @@ uint8_t packet[] = {
   0b00101110, 0b10010001, 0b00010001, 0b00000011, 0b01111101, 0b11000000, 0b01111111
 };
 
-void radioOff()
-{
-  radio.sleep();
-}
-
-void radioOn()
-{
-  radio.setModeIdle();
-  radio.setFrequency(437.505);
-  radio.setModemRegisters(&FSK1k2);
-  radio.setTxPower(RH_RF22_RF23BP_TXPOW_30DBM);
-  delay(10);
-}
-
 void setup() 
 { 
   Serial.begin(9600);
   pinMode(TEENSY_LED, OUTPUT);
   pinMode(KICKSAT_RADIO_SDN, OUTPUT);
   digitalWrite(KICKSAT_RADIO_SDN, LOW);
-  Serial.print(radio.init());
-  delay(3000);
+  if(!radio.init()) {
+    Serial.println("We have a problem...");
+  }
+  else {
+    Serial.println("Good to go...");
+  }
+  radio.setFrequency(437.505);
+  radio.setModemRegisters(&FSK1k2);
+  radio.setTxPower(RH_RF22_RF23BP_TXPOW_29DBM);
 }
 
 unsigned int n = 1;
 void loop()
 {
-  radioOn();
-  Serial.print(radio.statusRead());
-  Serial.print("\t");
-  Serial.print(radio.send(packet, 95));
+  Serial.print("Status byte: 0x");
+  Serial.print(radio.statusRead(),HEX);
   Serial.print("\t Packet ");
-  Serial.println(n++);
+  radio.send(packet, 95);
   radio.waitPacketSent();
-  radioOff();
-  delay(5000);
+  Serial.println(n++);
+  delay(1000);
 }
 
