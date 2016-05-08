@@ -30,11 +30,14 @@ public:
 	// AX25(char* fromCallsign, char* toCallsign);
 	AX25(uint8_t slaveSelectPin = SS, uint8_t interruptPin = 2);
 
+	void powerAndInit(uint8_t shutdownPin);
+
 	void transmit(char* payload); // void transmit(char* payload, unsigned int len)
 
-	void setFrequency(float freq);
+	// TODO: figure out
+	// inline void setFrequency(float freq);
 
-	void setPower(byte pwr);
+	// inline void setPower(byte pwr);
 
 private:
 
@@ -60,6 +63,7 @@ private:
 	unsigned int FCS = 0;
 
 	void radioSetup();
+
 	inline void setSSIDsource(byte ssid_src);
 	inline void setSSIDdest(byte ssid_dest);
 	inline void setFromCallsign(char *fromcallsign);
@@ -71,31 +75,28 @@ private:
 
 	void demod(byte *Buffer, uint8_t bytelength);
 
-	//Flips the order of bytes from MSB first to LSB first
-	// void lsbFirst(char* out, char* in, unsigned int len);
-
 	boolean logicXOR(boolean a, boolean b);
 
 	//Calculate the 2-byte CRC on the data
 	// void crcCcitt(char* crc, char* data, unsigned int len);
 	unsigned int crcCcitt (byte *Buffer,uint8_t bytelength);
 
+	//Flips the order of bytes from MSB first to LSB first
 	byte MSB_LSB_swap_8bit(byte v);
 
 	unsigned int MSB_LSB_swap_16bit(unsigned int v);
 
+	// Initializes arrays with zeros
 	void arrayInit();
 
-	void setCallsignSsid();
-
-	void formatPacket();
-
-	void sendPacket();
+	void setCallsignAndSsid();
 
 	//Perform bit stuffing on the input array (add an extra 0 after 5 sequential 1's)
 	// unsigned int bitStuff(char* out, char* in, unsigned int inLen);
+	void formatPacket();
 
-	// void nrzi(char* out, char* in, unsigned int len);
+	void sendPacket();	
+
 
 };
 
