@@ -3,34 +3,13 @@
   // Calls constructor GenericSPIClass encapsulates the standard Arduino hardware and other
   // hardware SPI interfaces. Defaults to Frequency1MHz, BitOrderMSBFirst, DataMode0.
   // Calls RH_RF22 constructor with defaults of SS pin and pin 2 for interrupt
-AX25::AX25(uint8_t slaveSelectPin, uint8_t interruptPin)
+AX25::AX25(uint8_t slaveSelectPin, uint8_t interruptPin, uint8_t _shutdownPin)
  : spi(RHHardwareSPI()), radio(RH_RF22(slaveSelectPin, interruptPin, spi)) {
-
-
-  FSK1k2 = {
-    0x2B, //reg_1c
-    0x03, //reg_1f
-    0x41, //reg_20
-    0x60, //reg_21
-    0x27, //reg_22
-    0x52, //reg_23
-    0x00, //reg_24
-    0x9F, //reg_25
-    0x2C, //reg_2c - Only matters for OOK mode
-    0x11, //reg_2d - Only matters for OOK mode
-    0x2A, //reg_2e - Only matters for OOK mode
-    0x80, //reg_58
-    0x60, //reg_69
-    0x09, //reg_6e
-    0xD5, //reg_6f
-    0x24, //reg_70
-    0x22, //reg_71
-    0x01  //reg_72
-  }; 
+  shutdownPin = _shutdownPin;
 }
 
 // Power cycles the radio, then initalizes the radio
-void AX25::powerAndInit(uint8_t shutdownPin) {
+bool AX25::powerAndInit() {
   // Need a delay before turning on radio
   // so that power supply can stabilize
   digitalWrite(shutdownPin, HIGH);
@@ -39,23 +18,57 @@ void AX25::powerAndInit(uint8_t shutdownPin) {
   delay(500);
 
   if (!radio.init()) {
+    return false;
     Serial.println("init failed");
   } else {
+    return true;
     Serial.println("init success");
   }
 }
 
 // Formats and transmit messages and then puts radio to sleep
-void AX25::transmit(char* message1) {
+void AX25::transmit(char* message1, uint16_t size) {
   Index = 0;
   arrayInit();
   setCallsignAndSsid();
-  Serial.println(message);
-  strcpy(message, message1);
-  formatPacket();
+  // Serial.println(message);
+  // strcpy(message, message1);
+
+  memcpy(message, message1, size);
+  // Serial.print("messge size: "); Serial.println(sizeof(message));
+  // Serial.print("messge: "); Serial.println(message);
+  Serial.println("message");
+    for (int i=0 ; i < size; i++) Serial.print(message[i],HEX);
+    Serial.println(""); 
+  formatPacket(size);
   sendPacket();
   radio.waitPacketSent();
   radio.sleep();
+}
+
+bool AX25::available() {
+  return radio.available();
+}
+
+void AX25::setRxMode() {
+  radio.setModeRx();
+}
+
+void AX25::setTxMode() {
+  radio.setModeTx();
+}
+
+void AX25::sendPacket() {
+  radio.setModeIdle();
+  radio.setFrequency(437.505);  //TODO: FIX
+  radio.setModemRegisters(&FSK1k2);
+  radio.setTxPower(RH_RF22_RF23BP_TXPOW_29DBM); //TODO FIX
+  // radio.setTxPower(0x02); //TODO FIX
+  radio.send(finalSequence, Index);  
+}
+
+bool AX25::receive(uint8_t* buf, uint8_t* len) {
+  return radio.recv(buf, len);
 }
 
 void AX25::setSSIDsource(byte ssid_src) { ssid_source = ssid_src;}
@@ -184,9 +197,17 @@ void AX25::bitProcessing(byte *Buffer, uint8_t bytelength) {
         if  (byte_temp[i+7] == 0x01) temp = temp + 0b00000001;
         finalSequence[Index++] = temp;
       }
+
+      ////////
+      Serial.println("Final sent Message");
+    for (int i=0; i < Index; i++) 
+    {
+      Serial.print(char(finalSequence[i]), HEX);
+    }
+    Serial.println("");
 }
 
-void AX25::demod(byte *Buffer, uint8_t bytelength) {
+char* AX25::demod(byte *Buffer, uint8_t bytelength) {
   
     byte BitSequence[bytelength*8];
     byte ByteSequence[bytelength];
@@ -326,27 +347,30 @@ void AX25::demod(byte *Buffer, uint8_t bytelength) {
         ByteSequence[k++] = temp;
       }
     
- //   Serial.println("Received Stream"); 
- //   radio.printBuffer("received:", ByteSequence, k);
-    //for (int i=0 ; i < k; i++) Serial.print(ByteSequence[i],HEX);
+   Serial.println("Received Stream"); 
+   radio.printBuffer("received:", ByteSequence, k);
+   Serial.println("other");
+    for (int i=0 ; i < k; i++) Serial.print(ByteSequence[i],HEX);
     Serial.println(""); 
     
     //Check if message has errors
     //Compute FCS on received byte stream
+    Serial.print("k = ");
+    Serial.println(k);
     FCS = 0;
     FCS = crcCcitt(ByteSequence, k-2);
     
     Checksum[1] = ByteSequence[k-2];
     Checksum[2] = ByteSequence[k-1];
     
-    //Serial.println("Checksums : ");
-    //Serial.println(Checksum[1],HEX);
-    //Serial.println(Checksum[2],HEX);
-    //Serial.println("FCS in LSB: ");
-    //Serial.print(FCS,HEX);
-    //Serial.println("Checksums computed: ");
-    //Serial.print((FCS >> 8) & 0xff,HEX);
-    //Serial.print(FCS & 0xff,HEX);
+    Serial.println("Checksums : ");
+    Serial.println(Checksum[1],HEX);
+    Serial.println(Checksum[2],HEX);
+    Serial.println("FCS in LSB: ");
+    Serial.print(FCS,HEX);
+    Serial.println("Checksums computed: ");
+    Serial.print((FCS >> 8) & 0xff,HEX);
+    Serial.print(FCS & 0xff,HEX);
     
     if (Checksum[1] != ((FCS >> 8) & 0xff))
     {
@@ -367,11 +391,16 @@ void AX25::demod(byte *Buffer, uint8_t bytelength) {
     //Recover header
     for (int i=0; i < 6; i++) DestCS[i] = char(ByteSequence_temp[cnt++]>>1);
 
+      ///
+      Serial.print("dest: ");Serial.println(DestCS);
+
     //SSID Destination
     cnt++; 
 
     //Append Source Callsign
     for (int i=0; i < 6; i++) SourceCS[i] = char(ByteSequence_temp[cnt++]>>1);
+
+      Serial.print("source: ");Serial.println(SourceCS);
 
     //Append SSID Source
     cnt++;
@@ -381,6 +410,11 @@ void AX25::demod(byte *Buffer, uint8_t bytelength) {
     cnt++;
     //Recover message
     s = k-2-cnt;
+
+    Serial.print("k: ");Serial.println(k);
+    Serial.print("cnt: ");Serial.println(cnt);
+    Serial.print("s: ");Serial.println(s);
+
     Serial.println("Final decoded Message");
     for (int i=0; i < s; i++) 
     {
@@ -388,6 +422,8 @@ void AX25::demod(byte *Buffer, uint8_t bytelength) {
       Serial.print(Message[i]);
     }
     Serial.println("");
+    return Message;
+    
 }
 
 boolean AX25::logicXOR(boolean a, boolean b) {
@@ -440,7 +476,6 @@ unsigned int AX25::MSB_LSB_swap_16bit(unsigned int v) {
 void AX25::arrayInit() {
   for (int i=0; i< MAX_LENGTH * 8 ;i++) bitSequence[i] = 0;
   for (int i=0; i< MAX_LENGTH_FINAL ;i++) finalSequence[i] = 0;
-  for (int i=0; i< MAX_LENGTH_FINAL ;i++) RcvSequence[i] = 0;
   for (int j=0; j< 256 ;j++) strcpy(message," ");
 }
 
@@ -451,7 +486,7 @@ void AX25::setCallsignAndSsid() {
   setSSIDsource(AX25_SSID_SOURCE);
 }
 
-void AX25::formatPacket() {
+void AX25::formatPacket(uint16_t size) {
   
   // Add Header
   addHeader(bitSequence);
@@ -460,23 +495,26 @@ void AX25::formatPacket() {
   Serial.println(strlen(message));
 
   //Add Message
-  for (int i=0; i < strlen(message) ; i++) bitSequence[Index++] = message[i];
+  for (int i=0; i < size ; i++) bitSequence[Index++] = message[i];
 
 
-      Serial.println("mesg; ");
+  //     Serial.println("mesg1; ");
 
-  for (int i=0; i< MAX_LENGTH_FINAL ;i++) Serial.print(bitSequence[i]);
-    Serial.println("");
+  // for (int i=0; i< MAX_LENGTH_FINAL ;i++) Serial.println(bitSequence[i]);
+  //   Serial.println("");
 
   //Convert bit sequence from MSB to LSB
   for (int i=0; i < Index ; i++) bitSequence[i] = MSB_LSB_swap_8bit(bitSequence[i]);
 
 
 
-      Serial.println("mesg; ");
+  //     Serial.println("mesg; ");
 
-  for (int i=0; i< MAX_LENGTH_FINAL ;i++) Serial.print(bitSequence[i]);
-    Serial.println("");
+  // for (int i=0; i< MAX_LENGTH_FINAL ;i++) Serial.print(bitSequence[i]);
+  //   Serial.println("");
+
+  Serial.print("index = ");
+  Serial.print(Index);
 
   //Compute Frame check sequence : CRC
   FCS = crcCcitt(bitSequence, Index);
@@ -496,18 +534,10 @@ void AX25::formatPacket() {
 
       Serial.println("mesg; ");
 
-  for (int i=0; i< MAX_LENGTH_FINAL ;i++) Serial.print(finalSequence[i]);
+  // for (int i=0; i< MAX_LENGTH_FINAL ;i++) Serial.println(finalSequence[i]);
     Serial.println("");
   
 }
 
-void AX25::sendPacket() {
-  radio.setModeIdle();
-  radio.setFrequency(437.505);  //TODO: FIX
-  radio.setModemRegisters(&FSK1k2);
-  radio.setTxPower(RH_RF22_RF23BP_TXPOW_30DBM); //TODO FIX
-  radio.send(finalSequence, Index); 
-  
-}
 
 

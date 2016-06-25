@@ -28,11 +28,27 @@ class AX25 {
 public:
 	//Default Constructor
 	// AX25(char* fromCallsign, char* toCallsign);
-	AX25(uint8_t slaveSelectPin = SS, uint8_t interruptPin = 2);
+	AX25(uint8_t slaveSelectPin = SS, uint8_t interruptPin = 2, uint8_t _shutdownPin = 9);
 
-	void powerAndInit(uint8_t shutdownPin);
+	RH_RF22 radio;
 
-	void transmit(char* payload); // void transmit(char* payload, unsigned int len)
+	bool powerAndInit();
+
+	void transmit(char* payload, uint16_t size); // void transmit(char* payload, unsigned int len)
+
+	bool available();
+
+	void setRxMode();
+
+	void setTxMode();
+
+	bool receive(uint8_t* buf, uint8_t* len);
+
+	char* demod(byte *Buffer, uint8_t bytelength);
+
+	uint8_t shutdownPin;
+
+	
 
 	// TODO: figure out
 	// inline void setFrequency(float freq);
@@ -41,9 +57,28 @@ public:
 
 private:
 
-	RH_RF22::ModemConfig FSK1k2;
+	RH_RF22::ModemConfig FSK1k2 = {
+	    0x2B, //reg_1c
+	    0x03, //reg_1f
+	    0x41, //reg_20
+	    0x60, //reg_21
+	    0x27, //reg_22
+	    0x52, //reg_23
+	    0x00, //reg_24
+	    0x9F, //reg_25
+	    0x2C, //reg_2c - Only matters for OOK mode
+	    0x11, //reg_2d - Only matters for OOK mode
+	    0x2A, //reg_2e - Only matters for OOK mode
+	    0x80, //reg_58
+	    0x60, //reg_69
+	    0x09, //reg_6e
+	    0xD5, //reg_6f
+	    0x24, //reg_70
+	    0x22, //reg_71
+	    0x01  //reg_72
+	  }; 
 
-	RH_RF22 radio;
+	
 
 	RHHardwareSPI spi;
 
@@ -53,10 +88,8 @@ private:
 	byte ssid_source;
 	byte ssid_destination;
 
-	byte bitSequence[280*8];
-	byte finalSequence[450];
-	byte RcvSequence[450];
-	uint8_t len = sizeof(RcvSequence);
+	byte bitSequence[MAX_LENGTH*8];
+	byte finalSequence[MAX_LENGTH_FINAL];
 	char message[256];
 
 	int Index = 0;
@@ -64,16 +97,16 @@ private:
 
 	void radioSetup();
 
-	inline void setSSIDsource(byte ssid_src);
-	inline void setSSIDdest(byte ssid_dest);
-	inline void setFromCallsign(char *fromcallsign);
-	inline void setToCallsign(char *tocallsign);
+	void setSSIDsource(byte ssid_src);
+	void setSSIDdest(byte ssid_dest);
+	void setFromCallsign(char *fromcallsign);
+	void setToCallsign(char *tocallsign);
 
 	void addHeader( byte *Buffer);
 
 	void bitProcessing(byte *Buffer, uint8_t bytelength);
 
-	void demod(byte *Buffer, uint8_t bytelength);
+	
 
 	boolean logicXOR(boolean a, boolean b);
 
@@ -93,7 +126,7 @@ private:
 
 	//Perform bit stuffing on the input array (add an extra 0 after 5 sequential 1's)
 	// unsigned int bitStuff(char* out, char* in, unsigned int inLen);
-	void formatPacket();
+	void formatPacket(uint16_t size);
 
 	void sendPacket();	
 
