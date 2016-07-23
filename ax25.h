@@ -112,12 +112,12 @@ private:
 
 	//Calculate the 2-byte CRC on the data
 	// void crcCcitt(char* crc, char* data, unsigned int len);
-	unsigned int crcCcitt (byte *Buffer,uint8_t bytelength);
+	uint16_t crcCcitt (byte *Buffer,uint8_t bytelength);
 
 	//Flips the order of bytes from MSB first to LSB first
 	byte MSB_LSB_swap_8bit(byte v);
 
-	unsigned int MSB_LSB_swap_16bit(unsigned int v);
+	uint16_t MSB_LSB_swap_16bit(uint16_t v);
 
 	// Initializes arrays with zeros
 	void arrayInit();

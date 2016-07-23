@@ -24,7 +24,9 @@ bool AX25::powerAndInit() {
     return true;
     Serial.println("init success");
   }
+
 }
+
 
 // Formats and transmit messages and then puts radio to sleep
 void AX25::transmit(char* message1, uint16_t size) {
@@ -51,7 +53,14 @@ bool AX25::available() {
 }
 
 void AX25::setRxMode() {
+  // radio.sleep();
   radio.setModeRx();
+
+  arrayInit();
+  setCallsignAndSsid();
+  radio.setModeIdle();
+  radio.setFrequency(437.505);  //TODO: FIX
+  radio.setModemRegisters(&FSK1k2);
 }
 
 void AX25::setTxMode() {
@@ -68,6 +77,7 @@ void AX25::sendPacket() {
 }
 
 bool AX25::receive(uint8_t* buf, uint8_t* len) {
+  *len = MAX_LENGTH_FINAL;
   return radio.recv(buf, len);
 }
 
@@ -99,6 +109,65 @@ void AX25::addHeader(byte *Buffer) {
     Buffer[Index++] = AX25_PROTOCOL;
 }
 
+void AX25::formatPacket(uint16_t size) {
+  
+  // Add Header
+  addHeader(bitSequence);
+
+  Serial.println(message);
+  Serial.println(strlen(message));
+
+  //Add Message
+  for (int i=0; i < size ; i++) bitSequence[Index++] = message[i];
+
+
+  //     Serial.println("mesg1; ");
+
+  // for (int i=0; i< MAX_LENGTH_FINAL ;i++) Serial.println(bitSequence[i]);
+  //   Serial.println("");
+
+  //Convert bit sequence from MSB to LSB
+  for (int i=0; i < Index ; i++) bitSequence[i] = MSB_LSB_swap_8bit(bitSequence[i]);
+
+
+
+  //     Serial.println("mesg; ");
+
+  // for (int i=0; i< MAX_LENGTH_FINAL ;i++) Serial.print(bitSequence[i]);
+  //   Serial.println("");
+
+  Serial.print("index = ");
+  Serial.print(Index);
+
+  //Compute Frame check sequence : CRC
+  FCS = crcCcitt(bitSequence, Index);
+
+
+  Serial.print("CRC:"); Serial.println(FCS, HEX);
+
+  Serial.print("size of byte:"); Serial.println(sizeof(byte));
+  
+  //Add FCS in MSB form
+  //Add MS byte
+  bitSequence[Index++] = (FCS >> 8) & 0xff;
+  //Add LS byte
+  bitSequence[Index++] = FCS & 0xff;
+
+    
+  radio.printBuffer("Init Message:", bitSequence, Index);
+
+    
+  //Bit Processing...Bit stuff, add FLAG and do NRZI enconding...
+  bitProcessing(bitSequence,Index);
+
+      Serial.println("mesg; ");
+
+  // for (int i=0; i< MAX_LENGTH_FINAL ;i++) Serial.println(finalSequence[i]);
+    Serial.println("");
+  
+}
+
+
 
 void AX25::bitProcessing(byte *Buffer, uint8_t bytelength) {
   
@@ -121,6 +190,10 @@ void AX25::bitProcessing(byte *Buffer, uint8_t bytelength) {
         else BitSequence[k++] = 0x00;
        }       
      }
+
+     Serial.println("before stuffing: ");
+    for (int i=0; i< k ;i++) {Serial.print(BitSequence[i], HEX); Serial.print(" ");}
+    Serial.println("");
      
      // stuff a 0 after five consecutive 1s.
      for (int i = 0; i < k ; i++)
@@ -134,8 +207,16 @@ void AX25::bitProcessing(byte *Buffer, uint8_t bytelength) {
         {
             BitSequenceStuffed[s++] = 0x00; // stuff with a zero bit
             cnt = 0; // and reset cnt to zero
+
+            //
+            Serial.println("ADDED ZERO");
         }
       }
+
+
+      Serial.println("after stuffing: ");
+    for (int i=0; i< s ;i++) {Serial.print(BitSequenceStuffed[i], HEX); Serial.print(" ");}
+    Serial.println("");
       
       _size = 0;
        //Recreate 0b01111110 (FLAG) in byte size
@@ -267,13 +348,16 @@ char* AX25::demod(byte *Buffer, uint8_t bytelength) {
         ByteSequence[k++] = temp;
     }
 //Test
-//    radio.printBuffer("NRZI:", ByteSequence, k);
+   radio.printBuffer("NRZI:", ByteSequence, k);
 
     pastFlag = false;
     cnt = 0;
     //Find and Remove Flags
     for (int i = 0; i < k; i++)
     {
+       Serial.println(ByteSequence[i], HEX);
+
+
        if (ByteSequence[i] != AX25_FLAG)
        {
           pastFlag = true;
@@ -282,7 +366,7 @@ char* AX25::demod(byte *Buffer, uint8_t bytelength) {
     }
     
 //Test
-//    radio.printBuffer("Removed Flags:", ByteSequence_temp, cnt);
+   radio.printBuffer("Removed Flags:", ByteSequence_temp, cnt);
     
     //Re-init
     for (int i=0; i < bytelength*8 ; i++) BitSequence[i] = 0x00;
@@ -300,6 +384,33 @@ char* AX25::demod(byte *Buffer, uint8_t bytelength) {
    //Re-init
    for (int i=0; i < bytelength*8 ; i++) BitSequence_temp[i] = 0x00;
    
+
+    Serial.println("before unstuffing: ");
+    for (int i=0; i< k ;i++) {Serial.print(BitSequence[i], HEX); Serial.print(" ");}
+    Serial.println("");
+/////////////////
+
+  for (int i = 0; i < k ; i++)
+   { 
+      if (BitSequence[i] == 0x01) cnt++;
+      else cnt = 0; // restart count at 1
+
+      if (cnt == 6) // there are five consecutive bits of the same value
+      {
+        k = i - 6;
+        Serial.println("found end flag");
+        break;
+      }
+    }
+
+Serial.println("before unstuffing after removing: ");
+    for (int i=0; i< k ;i++) {Serial.print(BitSequence[i], HEX); Serial.print(" ");}
+    Serial.println("");
+
+  Serial.print("k = ");Serial.println(k);
+
+////////////////////////
+
    //Bit unstuff : Remove 0 after five consecutive 1s.
    cnt = 0;
    s = 0;
@@ -322,9 +433,17 @@ char* AX25::demod(byte *Buffer, uint8_t bytelength) {
       {
           BitFound = true;
           cnt = 0; // and reset cnt to zero
+
+          //
+          Serial.println("Zero removed");
       }
       BitSequence_temp[s++] = BitSequence[i]; // add the bit to the final sequence
+      Serial.print("s = ");Serial.println(s);
     }
+
+     Serial.println("after stuffing: ");
+    for (int i=0; i< s ;i++) {Serial.print(BitSequence_temp[i], HEX); Serial.print(" ");}
+    Serial.println("");
     
     extraByte = (extraBit / 8);
     if ( ((extraBit) % 8) > 0) extraByte++ ;
@@ -333,7 +452,8 @@ char* AX25::demod(byte *Buffer, uint8_t bytelength) {
     for (int i=0; i < bytelength ; i++) ByteSequence[i] = 0x00; 
     //Convert bit to Byte
     k = 0;
-    for (int i = 0; i < s - extraByte*8; i = i + 8)
+    // for (int i = 0; i < s - extraByte*8; i = i + 8)
+    for (int i = 0; i < s ; i = i + 8)
       {
         temp = 0;
         if  (BitSequence_temp[i] == 0x01)   temp = temp + 0b10000000;
@@ -352,6 +472,7 @@ char* AX25::demod(byte *Buffer, uint8_t bytelength) {
    Serial.println("other");
     for (int i=0 ; i < k; i++) Serial.print(ByteSequence[i],HEX);
     Serial.println(""); 
+
     
     //Check if message has errors
     //Compute FCS on received byte stream
@@ -430,10 +551,31 @@ boolean AX25::logicXOR(boolean a, boolean b) {
   return (a||b) && !(a && b); 
 }
 
-unsigned int AX25::crcCcitt (byte *Buffer, uint8_t bytelength) {
+// unsigned int AX25::crcCcitt (byte *Buffer, uint8_t bytelength) {
+//   uint8_t OutBit = 0;
+//   unsigned int XORMask = 0x0000;
+//   unsigned int SR = 0xFFFF;
+  
+//   for (int i=0; i<bytelength ; i++)
+//   {
+//     for (uint8_t b = 128 ; b > 0 ; b = b/2) {
+       
+//       OutBit = SR & 1 ? 1 : 0; //Bit shifted out of shift register
+    
+//       SR = SR>>1; // Shift the register to the right and shift a zero in
+
+//       XORMask = logicXOR((Buffer[i] & b),OutBit) ? MSB_LSB_swap_16bit(CRC_POLYGEN) : 0x0000;
+
+//       SR = SR ^ XORMask;
+//     }
+//   }
+//   return  MSB_LSB_swap_16bit(~SR);  
+// }
+
+uint16_t AX25::crcCcitt (byte *Buffer, uint8_t bytelength) {
   uint8_t OutBit = 0;
-  unsigned int XORMask = 0x0000;
-  unsigned int SR = 0xFFFF;
+  uint16_t XORMask = 0x0000;
+  uint16_t SR = 0xFFFF;
   
   for (int i=0; i<bytelength ; i++)
   {
@@ -461,7 +603,19 @@ byte AX25::MSB_LSB_swap_8bit(byte v) {
   return v;
 }
 
-unsigned int AX25::MSB_LSB_swap_16bit(unsigned int v) {
+// unsigned int AX25::MSB_LSB_swap_16bit(unsigned int v) {
+//   // swap odd and even bits
+//   v = ((v >> 1) & 0x5555) | ((v & 0x5555) << 1);
+//   // swap consecutive pairs
+//   v = ((v >> 2) & 0x3333) | ((v & 0x3333) << 2);
+//   // swap nibbles ... 
+//   v = ((v >> 4) & 0x0F0F) | ((v & 0x0F0F) << 4);
+//   // swap bytes
+//   v = ((v >> 8) & 0x00FF) | ((v & 0x00FF) << 8);  
+//   return v;
+// }
+
+uint16_t AX25::MSB_LSB_swap_16bit(uint16_t v) {
   // swap odd and even bits
   v = ((v >> 1) & 0x5555) | ((v & 0x5555) << 1);
   // swap consecutive pairs
@@ -486,58 +640,6 @@ void AX25::setCallsignAndSsid() {
   setSSIDsource(AX25_SSID_SOURCE);
 }
 
-void AX25::formatPacket(uint16_t size) {
-  
-  // Add Header
-  addHeader(bitSequence);
-
-  Serial.println(message);
-  Serial.println(strlen(message));
-
-  //Add Message
-  for (int i=0; i < size ; i++) bitSequence[Index++] = message[i];
-
-
-  //     Serial.println("mesg1; ");
-
-  // for (int i=0; i< MAX_LENGTH_FINAL ;i++) Serial.println(bitSequence[i]);
-  //   Serial.println("");
-
-  //Convert bit sequence from MSB to LSB
-  for (int i=0; i < Index ; i++) bitSequence[i] = MSB_LSB_swap_8bit(bitSequence[i]);
-
-
-
-  //     Serial.println("mesg; ");
-
-  // for (int i=0; i< MAX_LENGTH_FINAL ;i++) Serial.print(bitSequence[i]);
-  //   Serial.println("");
-
-  Serial.print("index = ");
-  Serial.print(Index);
-
-  //Compute Frame check sequence : CRC
-  FCS = crcCcitt(bitSequence, Index);
-  
-  //Add FCS in MSB form
-  //Add MS byte
-  bitSequence[Index++] = (FCS >> 8) & 0xff;
-  //Add LS byte
-  bitSequence[Index++] = FCS & 0xff;
-
-    
-  //radio.printBuffer("Init Message:", bitSequence, Index);
-
-    
-  //Bit Processing...Bit stuff, add FLAG and do NRZI enconding...
-  bitProcessing(bitSequence,Index);
-
-      Serial.println("mesg; ");
-
-  // for (int i=0; i< MAX_LENGTH_FINAL ;i++) Serial.println(finalSequence[i]);
-    Serial.println("");
-  
-}
 
 
 
