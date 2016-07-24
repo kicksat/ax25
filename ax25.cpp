@@ -39,9 +39,6 @@ void AX25::transmit(char* message1, uint16_t size) {
   memcpy(message, message1, size);
   // Serial.print("messge size: "); Serial.println(sizeof(message));
   // Serial.print("messge: "); Serial.println(message);
-  Serial.println("message");
-    for (int i=0 ; i < size; i++) Serial.print(message[i],HEX);
-    Serial.println(""); 
   formatPacket(size);
   sendPacket();
   radio.waitPacketSent();
@@ -114,38 +111,16 @@ void AX25::formatPacket(uint16_t size) {
   // Add Header
   addHeader(bitSequence);
 
-  Serial.println(message);
-  Serial.println(strlen(message));
-
   //Add Message
   for (int i=0; i < size ; i++) bitSequence[Index++] = message[i];
-
-
-  //     Serial.println("mesg1; ");
-
-  // for (int i=0; i< MAX_LENGTH_FINAL ;i++) Serial.println(bitSequence[i]);
-  //   Serial.println("");
 
   //Convert bit sequence from MSB to LSB
   for (int i=0; i < Index ; i++) bitSequence[i] = MSB_LSB_swap_8bit(bitSequence[i]);
 
-
-
-  //     Serial.println("mesg; ");
-
-  // for (int i=0; i< MAX_LENGTH_FINAL ;i++) Serial.print(bitSequence[i]);
-  //   Serial.println("");
-
-  Serial.print("index = ");
-  Serial.print(Index);
-
   //Compute Frame check sequence : CRC
   FCS = crcCcitt(bitSequence, Index);
 
-
-  Serial.print("CRC:"); Serial.println(FCS, HEX);
-
-  Serial.print("size of byte:"); Serial.println(sizeof(byte));
+  // Serial.print("CRC:"); Serial.println(FCS, HEX);
   
   //Add FCS in MSB form
   //Add MS byte
@@ -154,16 +129,15 @@ void AX25::formatPacket(uint16_t size) {
   bitSequence[Index++] = FCS & 0xff;
 
     
-  radio.printBuffer("Init Message:", bitSequence, Index);
+  // radio.printBuffer("Init Message:", bitSequence, Index);
 
     
   //Bit Processing...Bit stuff, add FLAG and do NRZI enconding...
   bitProcessing(bitSequence,Index);
 
-      Serial.println("mesg; ");
-
+  // Serial.println("mesg; ");
   // for (int i=0; i< MAX_LENGTH_FINAL ;i++) Serial.println(finalSequence[i]);
-    Serial.println("");
+  // Serial.println("");
   
 }
 
@@ -190,10 +164,6 @@ void AX25::bitProcessing(byte *Buffer, uint8_t bytelength) {
         else BitSequence[k++] = 0x00;
        }       
      }
-
-     Serial.println("before stuffing: ");
-    for (int i=0; i< k ;i++) {Serial.print(BitSequence[i], HEX); Serial.print(" ");}
-    Serial.println("");
      
      // stuff a 0 after five consecutive 1s.
      for (int i = 0; i < k ; i++)
@@ -208,15 +178,8 @@ void AX25::bitProcessing(byte *Buffer, uint8_t bytelength) {
             BitSequenceStuffed[s++] = 0x00; // stuff with a zero bit
             cnt = 0; // and reset cnt to zero
 
-            //
-            Serial.println("ADDED ZERO");
         }
       }
-
-
-      Serial.println("after stuffing: ");
-    for (int i=0; i< s ;i++) {Serial.print(BitSequenceStuffed[i], HEX); Serial.print(" ");}
-    Serial.println("");
       
       _size = 0;
        //Recreate 0b01111110 (FLAG) in byte size
@@ -278,14 +241,6 @@ void AX25::bitProcessing(byte *Buffer, uint8_t bytelength) {
         if  (byte_temp[i+7] == 0x01) temp = temp + 0b00000001;
         finalSequence[Index++] = temp;
       }
-
-      ////////
-      Serial.println("Final sent Message");
-    for (int i=0; i < Index; i++) 
-    {
-      Serial.print(char(finalSequence[i]), HEX);
-    }
-    Serial.println("");
 }
 
 char* AX25::demod(byte *Buffer, uint8_t bytelength) {
@@ -348,7 +303,7 @@ char* AX25::demod(byte *Buffer, uint8_t bytelength) {
         ByteSequence[k++] = temp;
     }
 //Test
-   radio.printBuffer("NRZI:", ByteSequence, k);
+   // radio.printBuffer("NRZI:", ByteSequence, k);
 
     pastFlag = false;
     cnt = 0;
@@ -366,7 +321,7 @@ char* AX25::demod(byte *Buffer, uint8_t bytelength) {
     }
     
 //Test
-   radio.printBuffer("Removed Flags:", ByteSequence_temp, cnt);
+   // radio.printBuffer("Removed Flags:", ByteSequence_temp, cnt);
     
     //Re-init
     for (int i=0; i < bytelength*8 ; i++) BitSequence[i] = 0x00;
@@ -384,12 +339,7 @@ char* AX25::demod(byte *Buffer, uint8_t bytelength) {
    //Re-init
    for (int i=0; i < bytelength*8 ; i++) BitSequence_temp[i] = 0x00;
    
-
-    Serial.println("before unstuffing: ");
-    for (int i=0; i< k ;i++) {Serial.print(BitSequence[i], HEX); Serial.print(" ");}
-    Serial.println("");
-/////////////////
-
+    // Remove end flag
   for (int i = 0; i < k ; i++)
    { 
       if (BitSequence[i] == 0x01) cnt++;
@@ -398,18 +348,9 @@ char* AX25::demod(byte *Buffer, uint8_t bytelength) {
       if (cnt == 6) // there are five consecutive bits of the same value
       {
         k = i - 6;
-        Serial.println("found end flag");
         break;
       }
     }
-
-Serial.println("before unstuffing after removing: ");
-    for (int i=0; i< k ;i++) {Serial.print(BitSequence[i], HEX); Serial.print(" ");}
-    Serial.println("");
-
-  Serial.print("k = ");Serial.println(k);
-
-////////////////////////
 
    //Bit unstuff : Remove 0 after five consecutive 1s.
    cnt = 0;
@@ -434,22 +375,17 @@ Serial.println("before unstuffing after removing: ");
           BitFound = true;
           cnt = 0; // and reset cnt to zero
 
-          //
-          Serial.println("Zero removed");
+          // Serial.println("Zero removed");
       }
       BitSequence_temp[s++] = BitSequence[i]; // add the bit to the final sequence
-      Serial.print("s = ");Serial.println(s);
     }
-
-     Serial.println("after stuffing: ");
-    for (int i=0; i< s ;i++) {Serial.print(BitSequence_temp[i], HEX); Serial.print(" ");}
-    Serial.println("");
     
     extraByte = (extraBit / 8);
     if ( ((extraBit) % 8) > 0) extraByte++ ;
     
     //Re-init ByteSequence
     for (int i=0; i < bytelength ; i++) ByteSequence[i] = 0x00; 
+
     //Convert bit to Byte
     k = 0;
     // for (int i = 0; i < s - extraByte*8; i = i + 8)
@@ -467,31 +403,24 @@ Serial.println("before unstuffing after removing: ");
         ByteSequence[k++] = temp;
       }
     
-   Serial.println("Received Stream"); 
-   radio.printBuffer("received:", ByteSequence, k);
-   Serial.println("other");
-    for (int i=0 ; i < k; i++) Serial.print(ByteSequence[i],HEX);
-    Serial.println(""); 
-
+   // radio.printBuffer("received:", ByteSequence, k);
     
     //Check if message has errors
     //Compute FCS on received byte stream
-    Serial.print("k = ");
-    Serial.println(k);
     FCS = 0;
     FCS = crcCcitt(ByteSequence, k-2);
     
     Checksum[1] = ByteSequence[k-2];
     Checksum[2] = ByteSequence[k-1];
     
-    Serial.println("Checksums : ");
-    Serial.println(Checksum[1],HEX);
-    Serial.println(Checksum[2],HEX);
-    Serial.println("FCS in LSB: ");
-    Serial.print(FCS,HEX);
-    Serial.println("Checksums computed: ");
-    Serial.print((FCS >> 8) & 0xff,HEX);
-    Serial.print(FCS & 0xff,HEX);
+    // Serial.println("Checksums : ");
+    // Serial.println(Checksum[1],HEX);
+    // Serial.println(Checksum[2],HEX);
+    // Serial.println("FCS in LSB: ");
+    // Serial.print(FCS,HEX);
+    // Serial.println("Checksums computed: ");
+    // Serial.print((FCS >> 8) & 0xff,HEX);
+    // Serial.print(FCS & 0xff,HEX);
     
     if (Checksum[1] != ((FCS >> 8) & 0xff))
     {
@@ -512,16 +441,11 @@ Serial.println("before unstuffing after removing: ");
     //Recover header
     for (int i=0; i < 6; i++) DestCS[i] = char(ByteSequence_temp[cnt++]>>1);
 
-      ///
-      Serial.print("dest: ");Serial.println(DestCS);
-
     //SSID Destination
     cnt++; 
 
     //Append Source Callsign
     for (int i=0; i < 6; i++) SourceCS[i] = char(ByteSequence_temp[cnt++]>>1);
-
-      Serial.print("source: ");Serial.println(SourceCS);
 
     //Append SSID Source
     cnt++;
@@ -532,17 +456,14 @@ Serial.println("before unstuffing after removing: ");
     //Recover message
     s = k-2-cnt;
 
-    Serial.print("k: ");Serial.println(k);
-    Serial.print("cnt: ");Serial.println(cnt);
-    Serial.print("s: ");Serial.println(s);
 
-    Serial.println("Final decoded Message");
-    for (int i=0; i < s; i++) 
-    {
-      Message[i] = char(ByteSequence_temp[cnt++]);
-      Serial.print(Message[i]);
-    }
-    Serial.println("");
+    // Serial.println("Final decoded Message");
+    // for (int i=0; i < s; i++) 
+    // {
+    //   Message[i] = char(ByteSequence_temp[cnt++]);
+    //   Serial.print(Message[i]);
+    // }
+    // Serial.println("");
     return Message;
     
 }
