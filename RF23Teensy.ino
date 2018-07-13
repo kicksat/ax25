@@ -1,10 +1,11 @@
+
 #include <SPI.h>
 #include <RH_RF22.h>
 
-#define KICKSAT_RADIO_SS        10
+#define KICKSAT_RADIO_SS        6
 #define KICKSAT_RADIO_INTERUPT  2
-#define KICKSAT_RADIO_SDN       9
-#define TEENSY_LED              13
+#define KICKSAT_RADIO_SDN       3
+#define TEENSY_LED              9
 
 RH_RF22 radio;
 
@@ -46,7 +47,7 @@ uint8_t packet[] = {
 
 void setup() 
 { 
-  Serial.begin(9600);
+  SerialUSB.begin(9600);
   pinMode(TEENSY_LED, OUTPUT);
   pinMode(KICKSAT_RADIO_SDN, OUTPUT);
 
@@ -58,11 +59,11 @@ void setup()
   delay(500);
 
   if(!radio.init()) {
-    Serial.println("We have a problem...");
-    Serial.println(radio.statusRead(), HEX);
+    SerialUSB.println("We have a problem...");
+    SerialUSB.println(radio.statusRead(), HEX);
   }
   else {
-    Serial.println("Good to go...");
+    SerialUSB.println("Good to go...");
     digitalWrite(TEENSY_LED, HIGH);
   }
   radio.setFrequency(437.505);
@@ -73,12 +74,11 @@ void setup()
 unsigned int n = 1;
 void loop()
 {
-  Serial.print("Status byte: 0x");
-  Serial.print(radio.statusRead(), HEX);
-  Serial.print("\t Packet ");
+  SerialUSB.print("Status byte: 0x");
+  SerialUSB.print(radio.statusRead(), HEX);
+  SerialUSB.print("\t Packet ");
   radio.send(packet, 95);
   radio.waitPacketSent();
-  Serial.println(n++);
+  SerialUSB.println(n++);
   delay(1000);
 }
-
